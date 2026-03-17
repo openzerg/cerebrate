@@ -168,11 +168,10 @@ impl AgentManager {
         use tokio::io::{AsyncBufReadExt, BufReader};
         
         let flake_path = self.system_dir.to_string_lossy();
-        println!("Running: sudo nixos-rebuild switch --flake {}#zerg-swarm", flake_path);
+        println!("Running: nixos-rebuild switch --flake {}#zerg-swarm", flake_path);
 
-        let mut child = tokio::process::Command::new("sudo")
+        let mut child = tokio::process::Command::new("/run/current-system/sw/bin/nixos-rebuild")
             .args([
-                "nixos-rebuild",
                 "switch",
                 "--flake",
                 &format!("{}#zerg-swarm", flake_path),

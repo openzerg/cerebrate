@@ -51,7 +51,7 @@ in
         RUST_LOG = "info";
       };
 
-      path = [ pkgs.btrfs-progs ];
+      path = with pkgs; [ btrfs-progs nix git jq ];
 
       serviceConfig = {
         Type = "simple";
