@@ -51,14 +51,24 @@ impl AgentManager {
             let agent_path = agents_dir.join(agent_name);
             if !agent_path.exists() {
                 tracing::info!("Creating btrfs subvolume for agent: {}", agent_name);
-                let status = tokio::process::Command::new("sudo")
-                    .args(["btrfs", "subvolume", "create", agent_path.to_str().unwrap()])
+                
+                // Try to create using btrfs command directly (service runs as root)
+                let status = tokio::process::Command::new("btrfs")
+                    .args(["subvolume", "create", agent_path.to_str().unwrap()])
                     .status()
-                    .await
-                    .map_err(|e| Error::Io(e))?;
+                    .await;
 
-                if !status.success() {
-                    tracing::warn!("Failed to create subvolume for {} (may already exist)", agent_name);
+                match status {
+                    Ok(s) if s.success() => {
+                        tracing::info!("Successfully created subvolume for {}", agent_name);
+                    }
+                    Ok(s) => {
+                        tracing::warn!("Failed to create subvolume for {} (exit code: {:?})", agent_name, s.code());
+                    }
+                    Err(e) => {
+                        tracing::error!("Failed to execute btrfs command: {}", e);
+                        return Err(Error::Io(e));
+                    }
                 }
             }
         }
