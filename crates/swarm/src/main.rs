@@ -27,6 +27,7 @@ pub struct AppState {
     pub vm_connections: RwLock<HashMap<String, VmConnection>>,
     pub event_tx: broadcast::Sender<AgentEvent>,
     pub data_dir: std::path::PathBuf,
+    pub apply_tx: tokio::sync::mpsc::UnboundedSender<()>,
 }
 
 pub struct VmConnection {
@@ -270,14 +271,83 @@ async fn init_state(data_dir: std::path::PathBuf) -> Result<Arc<AppState>> {
     let state_manager = state::StateManager::new(&data_dir);
     let agent_manager = agent_manager::AgentManager::new(&system_dir);
     let (event_tx, _) = broadcast::channel::<AgentEvent>(256);
+    let (apply_tx, apply_rx) = tokio::sync::mpsc::unbounded_channel::<()>();
 
-    Ok(Arc::new(AppState {
+    let state = Arc::new(AppState {
         state_manager,
         agent_manager,
         vm_connections: RwLock::new(HashMap::new()),
         event_tx,
-        data_dir,
-    }))
+        data_dir: data_dir.clone(),
+        apply_tx,
+    });
+
+    // Spawn apply task handler
+    let state_clone = state.clone();
+    tokio::spawn(async move {
+        handle_apply_tasks(state_clone, apply_rx).await;
+    });
+
+    Ok(state)
+}
+
+async fn handle_apply_tasks(
+    state: Arc<AppState>,
+    mut apply_rx: tokio::sync::mpsc::UnboundedReceiver<()>,
+) {
+    let btrfs_device = std::env::var("ZERG_SWARM_BTRFS_DEVICE")
+        .unwrap_or_else(|_| "/dev/sda2".to_string());
+    
+    while let Some(_) = apply_rx.recv().await {
+        tracing::info!("Applying NixOS configuration...");
+        
+        // Notify that we're starting
+        let _ = state.event_tx.send(protocol::AgentEvent {
+            event: protocol::AgentEventType::ConfigApplying,
+            agent_name: "system".to_string(),
+            timestamp: chrono::Utc::now(),
+            data: None,
+        });
+        
+        match state.state_manager.load().await {
+            Ok(sw) => {
+                if let Err(e) = state.agent_manager.apply(&sw, &btrfs_device).await {
+                    tracing::error!("Failed to apply configuration: {}", e);
+                    // Notify error via WebSocket
+                    let _ = state.event_tx.send(protocol::AgentEvent {
+                        event: protocol::AgentEventType::ConfigError,
+                        agent_name: "system".to_string(),
+                        timestamp: chrono::Utc::now(),
+                        data: Some(serde_json::json!({ "error": e.to_string() })),
+                    });
+                } else {
+                    tracing::info!("NixOS configuration applied successfully");
+                    // Notify success via WebSocket
+                    let _ = state.event_tx.send(protocol::AgentEvent {
+                        event: protocol::AgentEventType::ConfigApplied,
+                        agent_name: "system".to_string(),
+                        timestamp: chrono::Utc::now(),
+                        data: None,
+                    });
+                }
+            }
+            Err(e) => {
+                tracing::error!("Failed to load state: {}", e);
+                let _ = state.event_tx.send(protocol::AgentEvent {
+                    event: protocol::AgentEventType::ConfigError,
+                    agent_name: "system".to_string(),
+                    timestamp: chrono::Utc::now(),
+                    data: Some(serde_json::json!({ "error": e.to_string() })),
+                });
+            }
+        }
+        
+        // Debounce: wait a bit to coalesce multiple requests
+        tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+        
+        // Drain any pending requests during the rebuild
+        while apply_rx.try_recv().is_ok() {}
+    }
 }
 
 #[tokio::main]

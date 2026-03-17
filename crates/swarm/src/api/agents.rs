@@ -88,6 +88,9 @@ pub async fn create_agent(
         return Json(ApiResponse::error(e.to_string()));
     }
     
+    // Trigger automatic apply
+    let _ = state.apply_tx.send(());
+    
     Json(ApiResponse::success(AgentInfo {
         name: req.name,
         enabled: true,
@@ -115,6 +118,9 @@ pub async fn delete_agent(
         return Json(ApiResponse::error(e.to_string()));
     }
     
+    // Trigger automatic apply
+    let _ = state.apply_tx.send(());
+    
     Json(ApiResponse::success(format!("Agent '{}' deleted", name)))
 }
 
@@ -139,6 +145,9 @@ pub async fn enable_agent(
         return Json(ApiResponse::error(e.to_string()));
     }
     
+    // Trigger automatic apply
+    let _ = state.apply_tx.send(());
+    
     Json(ApiResponse::success(format!("Agent '{}' enabled", name)))
 }
 
@@ -162,6 +171,9 @@ pub async fn disable_agent(
     if let Err(e) = state.state_manager.save(&sw).await {
         return Json(ApiResponse::error(e.to_string()));
     }
+    
+    // Trigger automatic apply
+    let _ = state.apply_tx.send(());
     
     Json(ApiResponse::success(format!("Agent '{}' disabled", name)))
 }

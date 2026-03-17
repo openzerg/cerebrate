@@ -37,6 +37,9 @@ pub enum AgentEventType {
     Deleted,
     Enabled,
     Disabled,
+    ConfigApplying,
+    ConfigApplied,
+    ConfigError,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
