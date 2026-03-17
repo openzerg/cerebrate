@@ -25,16 +25,39 @@ impl AgentManager {
 
     pub async fn apply(&self, state: &State, btrfs_device: &str) -> Result<()> {
         self.ensure_directories().await?;
+        self.ensure_template_files().await?;
         self.ensure_btrfs_subvolumes(&state.agents).await?;
         self.write_containers_nix(state).await?;
         self.write_filesystem_nix(&state.agents, btrfs_device).await?;
-        self.copy_template_files().await?;
         self.nixos_rebuild_switch().await?;
         Ok(())
     }
 
     async fn ensure_directories(&self) -> Result<()> {
         tokio::fs::create_dir_all(&self.generated_dir).await?;
+        Ok(())
+    }
+
+    async fn ensure_template_files(&self) -> Result<()> {
+        let flake_path = self.system_dir.join("flake.nix");
+        if !flake_path.exists() {
+            tracing::info!("Creating default flake.nix");
+            let flake_content = include_str!("templates/flake.nix");
+            tokio::fs::write(&flake_path, flake_content).await?;
+        }
+
+        let config_path = self.system_dir.join("configuration.nix");
+        if !config_path.exists() {
+            tracing::info!("Creating default configuration.nix");
+            let config_content = include_str!("templates/configuration.nix");
+            tokio::fs::write(&config_path, config_content).await?;
+        }
+
+        let hardware_path = self.system_dir.join("hardware-configuration.nix");
+        if !hardware_path.exists() {
+            tracing::warn!("hardware-configuration.nix not found, please run 'nixos-generate-config' or copy from /etc/nixos/hardware-configuration.nix");
+        }
+
         Ok(())
     }
 
