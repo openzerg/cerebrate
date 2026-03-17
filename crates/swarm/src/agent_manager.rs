@@ -27,6 +27,7 @@ impl AgentManager {
         self.ensure_directories().await?;
         self.ensure_template_files().await?;
         self.ensure_btrfs_subvolumes(&state.agents).await?;
+        self.cleanup_removed_agents(&state.agents).await?;
         self.write_containers_nix(state).await?;
         self.write_filesystem_nix(&state.agents, btrfs_device).await?;
         self.nixos_rebuild_switch().await?;
@@ -95,6 +96,45 @@ impl AgentManager {
                 }
             }
         }
+        Ok(())
+    }
+
+    async fn cleanup_removed_agents(&self, agents: &std::collections::HashMap<String, Agent>) -> Result<()> {
+        let agents_dir = Path::new("/home/@agents");
+        
+        if !agents_dir.exists() {
+            return Ok(());
+        }
+
+        let mut entries = tokio::fs::read_dir(agents_dir).await?;
+        
+        while let Some(entry) = entries.next_entry().await? {
+            let name = entry.file_name().to_string_lossy().to_string();
+            
+            // If this subvolume is not in the current agents list, delete it
+            if !agents.contains_key(&name) {
+                tracing::info!("Removing btrfs subvolume for deleted agent: {}", name);
+                
+                // Delete btrfs subvolume
+                let status = tokio::process::Command::new("btrfs")
+                    .args(["subvolume", "delete", entry.path().to_str().unwrap()])
+                    .status()
+                    .await;
+
+                match status {
+                    Ok(s) if s.success() => {
+                        tracing::info!("Successfully removed subvolume for {}", name);
+                    }
+                    Ok(s) => {
+                        tracing::warn!("Failed to remove subvolume for {} (exit code: {:?})", name, s.code());
+                    }
+                    Err(e) => {
+                        tracing::error!("Failed to execute btrfs subvolume delete: {}", e);
+                    }
+                }
+            }
+        }
+        
         Ok(())
     }
 
