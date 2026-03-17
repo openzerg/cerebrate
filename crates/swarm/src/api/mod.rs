@@ -2,6 +2,7 @@ mod types;
 mod websocket;
 mod agents;
 mod providers;
+mod checkpoints;
 
 use std::sync::Arc;
 use std::net::SocketAddr;
@@ -27,6 +28,12 @@ pub async fn start_server(
         .route("/agents/{name}", get(agents::get_agent).delete(agents::delete_agent))
         .route("/agents/{name}/enable", post(agents::enable_agent))
         .route("/agents/{name}/disable", post(agents::disable_agent))
+        .route("/agents/{name}/checkpoint", post(checkpoints::create_checkpoint))
+        .route("/agents/{name}/checkpoints", get(checkpoints::list_checkpoints))
+        .route("/agents/{name}/rollback", post(checkpoints::rollback_agent))
+        .route("/checkpoints", get(checkpoints::list_all_checkpoints))
+        .route("/checkpoints/{id}", delete(checkpoints::delete_checkpoint))
+        .route("/checkpoints/{id}/clone", post(checkpoints::clone_checkpoint))
         .route("/stats/summary", get(agents::get_stats_summary))
         .route("/llm/providers", get(providers::list_providers).post(providers::create_provider))
         .route("/llm/providers/{id}", delete(providers::delete_provider))

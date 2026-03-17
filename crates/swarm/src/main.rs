@@ -468,7 +468,7 @@ async fn handle_agent_command(command: AgentCommands, data_dir: std::path::PathB
         
         AgentCommands::ListCheckpoints { name } => {
             let checkpoint_mgr = checkpoint::CheckpointManager::new(&data_dir, "/dev/sda2", std::path::Path::new("/home"));
-            let checkpoints = checkpoint_mgr.list_checkpoints(&name).await?;
+            let checkpoints = checkpoint_mgr.list_checkpoints(Some(&name)).await?;
             
             if checkpoints.is_empty() {
                 println!("No checkpoints found for agent '{}'", name);
@@ -502,7 +502,7 @@ async fn handle_checkpoint_command(command: CheckpointCommands, data_dir: std::p
         }
         
         CheckpointCommands::List { agent } => {
-            let checkpoints = checkpoint_mgr.list_checkpoints(agent.as_deref().unwrap_or("")).await?;
+            let checkpoints = checkpoint_mgr.list_checkpoints(agent.as_deref()).await?;
             
             if checkpoints.is_empty() {
                 println!("No checkpoints found");

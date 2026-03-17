@@ -149,8 +149,8 @@ impl CheckpointManager {
         Ok(())
     }
 
-    pub async fn list_checkpoints(&self, agent_name: &str) -> Result<Vec<CheckpointMeta>> {
-        self.state_manager.list_checkpoints(Some(agent_name)).await
+    pub async fn list_checkpoints(&self, agent_name: Option<&str>) -> Result<Vec<CheckpointMeta>> {
+        self.state_manager.list_checkpoints(agent_name).await
     }
 
     pub async fn delete_checkpoint(&self, checkpoint_id: &str) -> Result<()> {
