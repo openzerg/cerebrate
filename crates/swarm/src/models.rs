@@ -1,9 +1,36 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct State {
+    pub version: String,
+    #[serde(default)]
+    pub defaults: Defaults,
+    #[serde(default)]
+    pub agents: HashMap<String, Agent>,
+    #[serde(default)]
+    pub providers: HashMap<String, Provider>,
+    #[serde(default)]
+    pub api_keys: HashMap<String, ApiKey>,
+    #[serde(default)]
+    pub forgejo_users: HashMap<String, ForgejoUser>,
+}
+
+impl State {
+    pub fn new() -> Self {
+        Self {
+            version: "1.0".to_string(),
+            defaults: Defaults::default(),
+            agents: HashMap::new(),
+            providers: HashMap::new(),
+            api_keys: HashMap::new(),
+            forgejo_users: HashMap::new(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Agent {
-    pub name: String,
     pub enabled: bool,
     pub container_ip: String,
     pub host_ip: String,
@@ -22,17 +49,6 @@ pub struct ForgejoUser {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct Config {
-    pub version: String,
-    #[serde(default)]
-    pub defaults: Defaults,
-    #[serde(default)]
-    pub agents: HashMap<String, Agent>,
-    #[serde(default)]
-    pub forgejo_users: HashMap<String, ForgejoUser>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Defaults {
     #[serde(default = "default_port")]
     pub port: u16,
@@ -52,28 +68,6 @@ fn default_container_subnet_base() -> String {
 }
 fn default_forgejo_url() -> String {
     "http://localhost:3000".to_string()
-}
-
-impl Default for Defaults {
-    fn default() -> Self {
-        Self {
-            port: default_port(),
-            container_subnet_base: default_container_subnet_base(),
-            forgejo_url: default_forgejo_url(),
-            forgejo_token: String::new(),
-        }
-    }
-}
-
-impl Config {
-    pub fn new() -> Self {
-        Self {
-            version: "1.0".to_string(),
-            defaults: Defaults::default(),
-            agents: HashMap::new(),
-            forgejo_users: HashMap::new(),
-        }
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -149,4 +143,13 @@ pub struct CreateProviderRequest {
 pub struct CreateApiKeyRequest {
     pub name: String,
     pub provider_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CheckpointMeta {
+    pub id: String,
+    pub agent_name: String,
+    pub description: String,
+    pub created_at: String,
+    pub btrfs_snapshot: String,
 }

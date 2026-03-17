@@ -110,25 +110,47 @@ pub async fn get_repo(forgejo_url: &str, forgejo_token: &str, owner: &str, repo:
     Ok(Some(repo))
 }
 
-pub async fn create_repo(forgejo_url: &str, forgejo_token: &str, name: &str, description: Option<&str>) -> Result<Repository> {
+pub async fn create_repo(forgejo_url: &str, forgejo_token: &str, owner: &str, name: &str) -> Result<Repository> {
     let client = ForgejoClient::new(forgejo_url, forgejo_token);
     
+    // Determine if owner is an org or user
+    // For simplicity, try org first, then user
     let body = CreateRepoRequest {
         name: name.to_string(),
-        description: description.unwrap_or("").to_string(),
+        description: String::new(),
         private: true,
         auto_init: true,
     };
     
+    // Try creating in org first
+    let org_url = client.url(&format!("/orgs/{}/repos", owner));
+    let user_url = client.url("/user/repos");
+    
+    // First try as org repo
     let response = client
         .http()
-        .post(client.url("/user/repos"))
+        .post(&org_url)
         .header("Authorization", format!("token {}", client.token()))
         .header("Content-Type", "application/json")
         .json(&body)
         .send()
         .await
         .map_err(|e| Error::Config(format!("Forgejo API error: {}", e)))?;
+    
+    // If org doesn't exist, try as user repo
+    let response = if response.status().as_u16() == 404 {
+        client
+            .http()
+            .post(&user_url)
+            .header("Authorization", format!("token {}", client.token()))
+            .header("Content-Type", "application/json")
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| Error::Config(format!("Forgejo API error: {}", e)))?
+    } else {
+        response
+    };
     
     if !response.status().is_success() {
         let status = response.status();

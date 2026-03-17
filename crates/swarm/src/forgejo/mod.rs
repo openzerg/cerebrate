@@ -1,7 +1,7 @@
-mod user;
-mod repo;
-mod collaborator;
-mod org;
+pub mod user;
+pub mod repo;
+pub mod collaborator;
+pub mod org;
 
 pub use user::*;
 pub use repo::*;

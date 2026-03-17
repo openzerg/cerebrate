@@ -1,7 +1,9 @@
 mod api;
 mod auth;
 mod agent_manager;
-mod db;
+mod state;
+mod checkpoint;
+mod btrfs;
 mod config;
 mod forgejo;
 mod proxy;
@@ -20,7 +22,7 @@ pub use error::{Error, Result};
 pub use models::*;
 
 pub struct AppState {
-    pub db: db::Database,
+    pub state_manager: state::StateManager,
     pub agent_manager: agent_manager::AgentManager,
     pub vm_connections: RwLock<HashMap<String, VmConnection>>,
     pub event_tx: broadcast::Sender<AgentEvent>,
@@ -34,6 +36,7 @@ pub struct VmConnection {
 }
 
 const DEFAULT_PORT: u16 = 17531;
+const MAX_CHECKPOINTS_PER_AGENT: usize = 10;
 
 #[derive(Parser)]
 #[command(name = "zerg-swarm")]
@@ -57,12 +60,26 @@ enum Commands {
     Serve,
     
     #[command(about = "Apply NixOS configuration")]
-    Apply,
+    Apply {
+        #[arg(short, long)]
+        #[arg(help = "Template directory (default: data-dir/system)")]
+        template: Option<std::path::PathBuf>,
+        
+        #[arg(long, default_value = "/dev/sda2")]
+        #[arg(help = "Btrfs device for agent filesystems")]
+        btrfs_device: String,
+    },
     
     #[command(about = "Agent management")]
     Agent {
         #[command(subcommand)]
         command: AgentCommands,
+    },
+    
+    #[command(about = "Checkpoint management")]
+    Checkpoint {
+        #[command(subcommand)]
+        command: CheckpointCommands,
     },
     
     #[command(about = "Git/Forgejo management")]
@@ -94,135 +111,131 @@ enum Commands {
 enum AgentCommands {
     #[command(about = "List all agents")]
     List,
+    
     #[command(about = "Create a new agent")]
-    Create { name: String, #[arg(short, long)] forgejo_username: Option<String> },
+    Create { 
+        name: String, 
+        #[arg(short, long)] 
+        forgejo_username: Option<String> 
+    },
+    
     #[command(about = "Get agent details")]
     Get { name: String },
+    
     #[command(about = "Delete an agent")]
     Delete { name: String },
+    
     #[command(about = "Enable an agent")]
     Enable { name: String },
+    
     #[command(about = "Disable an agent")]
     Disable { name: String },
+    
+    #[command(about = "Create a checkpoint")]
+    Checkpoint { 
+        name: String,
+        #[arg(short, long)]
+        #[arg(help = "Checkpoint description")]
+        desc: Option<String>,
+    },
+    
+    #[command(about = "Rollback to a checkpoint")]
+    Rollback { 
+        name: String,
+        checkpoint_id: String,
+    },
+    
+    #[command(about = "List checkpoints for an agent")]
+    ListCheckpoints { name: String },
+    
+    #[command(about = "Delete a checkpoint")]
+    DeleteCheckpoint { checkpoint_id: String },
+}
+
+#[derive(Subcommand)]
+enum CheckpointCommands {
+    #[command(about = "Clone a checkpoint to a new agent")]
+    Clone {
+        checkpoint_id: String,
+        new_name: String,
+    },
+    
+    #[command(about = "List all checkpoints")]
+    List {
+        #[arg(short, long)]
+        #[arg(help = "Filter by agent name")]
+        agent: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]
 enum GitCommands {
-    #[command(about = "Manage Forgejo accounts")]
-    Account { #[command(subcommand)] command: GitAccountCommands },
-    #[command(about = "Manage repositories")]
-    Repo { #[command(subcommand)] command: GitRepoCommands },
-    #[command(about = "Manage collaborators")]
-    Collaborator { #[command(subcommand)] command: GitCollaboratorCommands },
-    #[command(about = "Manage organizations")]
-    Org { #[command(subcommand)] command: GitOrgCommands },
-}
-
-#[derive(Subcommand)]
-enum GitAccountCommands {
-    #[command(about = "Create a Forgejo account")]
-    Create { #[arg(short, long)] username: String, #[arg(short, long)] password: String },
-    #[command(about = "Delete a Forgejo account")]
-    Delete { username: String },
-    #[command(about = "List Forgejo accounts")]
-    List,
-    #[command(about = "Bind a Forgejo user to an agent")]
-    Bind { agent: String, forgejo_user: String },
-    #[command(about = "Unbind Forgejo user from an agent")]
-    Unbind { agent: String },
-}
-
-#[derive(Subcommand)]
-enum GitRepoCommands {
-    #[command(about = "List repositories")]
-    List { owner: Option<String> },
-    #[command(about = "Get repository details")]
-    Get { repo: String },
-    #[command(about = "Create a repository")]
-    Create { name: String, #[arg(short, long)] description: Option<String> },
-    #[command(about = "Delete a repository")]
-    Delete { repo: String },
-    #[command(about = "Transfer repository ownership")]
-    Transfer { repo: String, new_owner: String },
-    #[command(about = "Update repository")]
-    Update {
-        repo: String,
-        #[arg(long)]
-        private: Option<bool>,
-        #[arg(short, long)]
-        description: Option<String>,
-    },
-}
-
-#[derive(Subcommand)]
-enum GitCollaboratorCommands {
-    #[command(about = "List collaborators")]
-    List { repo: String },
-    #[command(about = "Add a collaborator")]
-    Add {
-        repo: String,
-        username: String,
-        #[arg(short, long)]
-        permission: Option<String>,
-    },
-    #[command(about = "Remove a collaborator")]
-    Remove { repo: String, username: String },
-}
-
-#[derive(Subcommand)]
-enum GitOrgCommands {
+    #[command(about = "List Forgejo users")]
+    Users,
+    
+    #[command(about = "Create a Forgejo user")]
+    CreateUser { username: String, password: String, email: String },
+    
+    #[command(about = "Delete a Forgejo user")]
+    DeleteUser { username: String },
+    
     #[command(about = "List organizations")]
-    List,
+    Orgs,
+    
     #[command(about = "Create an organization")]
-    Create { name: String },
+    CreateOrg { name: String },
+    
     #[command(about = "Delete an organization")]
-    Delete { org: String },
-    #[command(about = "List organization members")]
-    MemberList { org: String },
-    #[command(about = "Add organization member")]
-    MemberAdd { org: String, username: String },
-    #[command(about = "Remove organization member")]
-    MemberRemove { org: String, username: String },
+    DeleteOrg { name: String },
+    
+    #[command(about = "List repositories")]
+    Repos,
+    
+    #[command(about = "Create a repository")]
+    CreateRepo { owner: String, name: String },
+    
+    #[command(about = "Delete a repository")]
+    DeleteRepo { owner: String, name: String },
 }
 
 #[derive(Subcommand)]
 enum ConfigCommands {
     #[command(about = "Export config to YAML")]
     Export,
+    
     #[command(about = "Import config from YAML")]
     Import,
 }
 
 #[derive(Subcommand)]
 enum ProviderCommands {
-    #[command(about = "List all providers")]
+    #[command(about = "List LLM providers")]
     List,
+    
     #[command(about = "Create a new provider")]
     Create {
         name: String,
-        #[arg(short = 't', long)]
         provider_type: String,
-        #[arg(short, long)]
         base_url: String,
-        #[arg(short = 'k', long)]
         api_key: String,
     },
-    #[command(about = "Get provider details")]
-    Get { id: String },
+    
     #[command(about = "Delete a provider")]
     Delete { id: String },
-    #[command(about = "Enable a provider")]
-    Enable { id: String },
-    #[command(about = "Disable a provider")]
-    Disable { id: String },
 }
 
 #[derive(Subcommand)]
 enum KeyCommands {
-    #[command(about = "List all API keys")]
+    #[command(about = "List API keys")]
     List,
+    
     #[command(about = "Create a new API key")]
-    Create { name: String, #[arg(short, long)] provider: String },
+    Create {
+        name: String,
+        #[arg(short, long)]
+        provider: String,
+    },
+    
     #[command(about = "Delete an API key")]
     Delete { id: String },
 }
@@ -234,37 +247,32 @@ fn setup_logging() {
 }
 
 fn get_data_dir(cli_data_dir: Option<std::path::PathBuf>) -> std::path::PathBuf {
-    // 1. Command line option --data-dir takes precedence
     if let Some(dir) = cli_data_dir {
         return dir;
     }
     
-    // 2. Environment variable ZERG_SWARM_DATA_DIR
     if let Ok(dir) = std::env::var("ZERG_SWARM_DATA_DIR") {
         return std::path::PathBuf::from(dir);
     }
     
-    // 3. Default: ~/.zerg-swarm
     dirs::home_dir()
         .map(|h| h.join(".zerg-swarm"))
         .unwrap_or_else(|| std::path::PathBuf::from(".zerg-swarm"))
 }
 
-async fn init_state(data_dir: std::path::PathBuf) -> crate::Result<Arc<AppState>> {
+async fn init_state(data_dir: std::path::PathBuf) -> Result<Arc<AppState>> {
     tokio::fs::create_dir_all(&data_dir).await?;
 
     let system_dir = data_dir.join("system");
     let generated_dir = system_dir.join("generated");
     tokio::fs::create_dir_all(&generated_dir).await?;
 
-    let db_path = data_dir.join("zerg-swarm.db");
-    let db = db::Database::new(&db_path).await?;
-
+    let state_manager = state::StateManager::new(&data_dir);
     let agent_manager = agent_manager::AgentManager::new(&system_dir);
     let (event_tx, _) = broadcast::channel::<AgentEvent>(256);
 
     Ok(Arc::new(AppState {
-        db,
+        state_manager,
         agent_manager,
         vm_connections: RwLock::new(HashMap::new()),
         event_tx,
@@ -272,17 +280,8 @@ async fn init_state(data_dir: std::path::PathBuf) -> crate::Result<Arc<AppState>
     }))
 }
 
-async fn check_service_health(port: u16) -> (bool, String) {
-    let url = format!("http://127.0.0.1:{}/health", port);
-    match reqwest::Client::new().get(&url).timeout(std::time::Duration::from_secs(2)).send().await {
-        Ok(resp) if resp.status().is_success() => (true, format!("running on port {}", port)),
-        Ok(resp) => (false, format!("unhealthy (status {})", resp.status())),
-        Err(e) => (false, format!("not running ({})", e)),
-    }
-}
-
 #[tokio::main]
-async fn main() -> crate::Result<()> {
+async fn main() -> Result<()> {
     let cli = Cli::parse();
     let data_dir = get_data_dir(cli.data_dir);
     
@@ -315,16 +314,20 @@ async fn main() -> crate::Result<()> {
             api::start_server(addr, state, auth_config).await?;
         }
         
-        Commands::Apply => {
+        Commands::Apply { template, btrfs_device } => {
             let state = init_state(data_dir.clone()).await?;
-            let agents = state.db.list_agents().await?;
-            let defaults = state.db.get_defaults().await;
+            let sw = state.state_manager.load().await?;
+            
+            let template_dir = template.unwrap_or_else(|| data_dir.join("system"));
+            let manager = state.agent_manager.clone().with_template(&template_dir);
+            
             println!("Applying NixOS configuration...");
-            state.agent_manager.apply_config(&agents, &defaults).await?;
+            manager.apply(&sw, &btrfs_device).await?;
             println!("NixOS configuration applied successfully!");
         }
         
         Commands::Agent { command } => handle_agent_command(command, data_dir.clone()).await?,
+        Commands::Checkpoint { command } => handle_checkpoint_command(command, data_dir.clone()).await?,
         Commands::Git { command } => handle_git_command(command, data_dir.clone()).await?,
         Commands::Config { command } => handle_config_command(command, data_dir.clone()).await?,
         Commands::Provider { command } => handle_provider_command(command, data_dir.clone()).await?,
@@ -334,336 +337,393 @@ async fn main() -> crate::Result<()> {
     Ok(())
 }
 
-async fn handle_agent_command(command: AgentCommands, data_dir: std::path::PathBuf) -> crate::Result<()> {
-    let state = init_state(data_dir).await?;
+async fn check_service_health(port: u16) -> (bool, String) {
+    let url = format!("http://localhost:{}/api/health", port);
+    match reqwest::Client::new()
+        .get(&url)
+        .timeout(std::time::Duration::from_secs(2))
+        .send()
+        .await
+    {
+        Ok(resp) if resp.status().is_success() => (true, format!("port {}", port)),
+        Ok(resp) => (false, format!("HTTP {}", resp.status())),
+        Err(e) => (false, e.to_string()),
+    }
+}
+
+async fn handle_agent_command(command: AgentCommands, data_dir: std::path::PathBuf) -> Result<()> {
+    let state_manager = state::StateManager::new(&data_dir);
+    let mut sw = state_manager.load().await?;
+    
     match command {
         AgentCommands::List => {
-            let agents = state.db.list_agents().await?;
+            let agents = &sw.agents;
             if agents.is_empty() {
                 println!("No agents found.");
             } else {
-                println!("{:<20} {:<10} {:<18} {:<18}", "NAME", "STATUS", "CONTAINER_IP", "HOST_IP");
-                println!("{}", "-".repeat(70));
-                for agent in agents {
-                    let status = if agent.enabled { "enabled" } else { "disabled" };
-                    println!("{:<20} {:<10} {:<18} {:<18}", agent.name, status, agent.container_ip, agent.host_ip);
+                println!("{:<20} {:<8} {:<15} {:<15}", "NAME", "ENABLED", "CONTAINER_IP", "HOST_IP");
+                println!("{}", "-".repeat(60));
+                for (name, agent) in agents {
+                    println!("{:<20} {:<8} {:<15} {:<15}", 
+                        name, 
+                        if agent.enabled { "yes" } else { "no" },
+                        agent.container_ip,
+                        agent.host_ip
+                    );
                 }
             }
         }
+        
         AgentCommands::Create { name, forgejo_username } => {
-            if state.db.get_agent(&name).await?.is_some() {
+            if sw.agents.contains_key(&name) {
                 eprintln!("Error: Agent '{}' already exists", name);
                 std::process::exit(1);
             }
-            let agent_num = state.db.get_next_agent_num().await?;
-            let defaults = state.db.get_defaults().await;
+            
+            let agent_num = sw.agents.len() + 1;
             let now = chrono::Utc::now().to_rfc3339();
-            let agent = crate::models::Agent {
-                name: name.clone(), enabled: true,
-                container_ip: format!("{}.{}.2", defaults.container_subnet_base, agent_num),
-                host_ip: format!("{}.{}.1", defaults.container_subnet_base, agent_num),
+            
+            let agent = Agent {
+                enabled: true,
+                container_ip: format!("{}.{}.2", sw.defaults.container_subnet_base, agent_num),
+                host_ip: format!("{}.{}.1", sw.defaults.container_subnet_base, agent_num),
                 forgejo_username: forgejo_username.or(Some(name.clone())),
                 internal_token: uuid::Uuid::new_v4().to_string(),
-                created_at: now.clone(), updated_at: now,
+                created_at: now.clone(),
+                updated_at: now,
             };
-            state.db.create_agent(&agent).await?;
+            
+            sw.agents.insert(name.clone(), agent.clone());
+            state_manager.save(&sw).await?;
+            
             println!("Agent '{}' created:", name);
             println!("  Container IP: {}", agent.container_ip);
             println!("  Host IP: {}", agent.host_ip);
+            println!("  Internal Token: {}", agent.internal_token);
         }
+        
         AgentCommands::Get { name } => {
-            match state.db.get_agent(&name).await? {
+            match sw.agents.get(&name) {
                 Some(agent) => {
-                    println!("Agent: {}", agent.name);
-                    println!("  Status: {}", if agent.enabled { "enabled" } else { "disabled" });
+                    println!("Agent: {}", name);
+                    println!("  Enabled: {}", agent.enabled);
                     println!("  Container IP: {}", agent.container_ip);
                     println!("  Host IP: {}", agent.host_ip);
-                    println!("  Forgejo User: {}", agent.forgejo_username.clone().unwrap_or_default());
-                    println!("  Token: {}", agent.internal_token);
+                    println!("  Forgejo Username: {:?}", agent.forgejo_username);
+                    println!("  Internal Token: {}", agent.internal_token);
+                    println!("  Created: {}", agent.created_at);
+                    println!("  Updated: {}", agent.updated_at);
                 }
-                None => { eprintln!("Error: Agent '{}' not found", name); std::process::exit(1); }
+                None => {
+                    eprintln!("Agent '{}' not found", name);
+                    std::process::exit(1);
+                }
             }
         }
+        
         AgentCommands::Delete { name } => {
-            if state.db.get_agent(&name).await?.is_none() {
-                eprintln!("Error: Agent '{}' not found", name); std::process::exit(1);
+            if sw.agents.remove(&name).is_none() {
+                eprintln!("Agent '{}' not found", name);
+                std::process::exit(1);
             }
-            state.db.delete_agent(&name).await?;
+            state_manager.save(&sw).await?;
             println!("Agent '{}' deleted", name);
         }
+        
         AgentCommands::Enable { name } => {
-            state.db.update_agent_enabled(&name, true).await?;
-            println!("Agent '{}' enabled", name);
+            if let Some(agent) = sw.agents.get_mut(&name) {
+                agent.enabled = true;
+                agent.updated_at = chrono::Utc::now().to_rfc3339();
+                state_manager.save(&sw).await?;
+                println!("Agent '{}' enabled", name);
+            } else {
+                eprintln!("Agent '{}' not found", name);
+                std::process::exit(1);
+            }
         }
+        
         AgentCommands::Disable { name } => {
-            state.db.update_agent_enabled(&name, false).await?;
-            println!("Agent '{}' disabled", name);
+            if let Some(agent) = sw.agents.get_mut(&name) {
+                agent.enabled = false;
+                agent.updated_at = chrono::Utc::now().to_rfc3339();
+                state_manager.save(&sw).await?;
+                println!("Agent '{}' disabled", name);
+            } else {
+                eprintln!("Agent '{}' not found", name);
+                std::process::exit(1);
+            }
+        }
+        
+        AgentCommands::Checkpoint { name, desc } => {
+            let checkpoint_mgr = checkpoint::CheckpointManager::new(&data_dir, "/dev/sda2", std::path::Path::new("/home"));
+            let checkpoint_id = checkpoint_mgr.create_checkpoint(&name, desc.as_deref().unwrap_or("")).await?;
+            println!("Checkpoint '{}' created for agent '{}'", checkpoint_id, name);
+        }
+        
+        AgentCommands::Rollback { name, checkpoint_id } => {
+            let checkpoint_mgr = checkpoint::CheckpointManager::new(&data_dir, "/dev/sda2", std::path::Path::new("/home"));
+            checkpoint_mgr.rollback(&name, &checkpoint_id).await?;
+            println!("Rolled back agent '{}' to checkpoint '{}'", name, checkpoint_id);
+        }
+        
+        AgentCommands::ListCheckpoints { name } => {
+            let checkpoint_mgr = checkpoint::CheckpointManager::new(&data_dir, "/dev/sda2", std::path::Path::new("/home"));
+            let checkpoints = checkpoint_mgr.list_checkpoints(&name).await?;
+            
+            if checkpoints.is_empty() {
+                println!("No checkpoints found for agent '{}'", name);
+            } else {
+                println!("Checkpoints for agent '{}':\n", name);
+                println!("{:<30} {:<20} {}", "ID", "CREATED", "DESCRIPTION");
+                println!("{}", "-".repeat(70));
+                for cp in checkpoints {
+                    println!("{:<30} {:<20} {}", cp.id, cp.created_at, cp.description);
+                }
+            }
+        }
+        
+        AgentCommands::DeleteCheckpoint { checkpoint_id } => {
+            let checkpoint_mgr = checkpoint::CheckpointManager::new(&data_dir, "/dev/sda2", std::path::Path::new("/home"));
+            checkpoint_mgr.delete_checkpoint(&checkpoint_id).await?;
+            println!("Checkpoint '{}' deleted", checkpoint_id);
         }
     }
+    
     Ok(())
 }
 
-async fn handle_git_command(command: GitCommands, data_dir: std::path::PathBuf) -> crate::Result<()> {
-    let state = init_state(data_dir).await?;
-    let defaults = state.db.get_defaults().await;
+async fn handle_checkpoint_command(command: CheckpointCommands, data_dir: std::path::PathBuf) -> Result<()> {
+    let checkpoint_mgr = checkpoint::CheckpointManager::new(&data_dir, "/dev/sda2", std::path::Path::new("/home"));
+    
+    match command {
+        CheckpointCommands::Clone { checkpoint_id, new_name } => {
+            checkpoint_mgr.clone(&checkpoint_id, &new_name).await?;
+            println!("Cloned checkpoint '{}' to new agent '{}'", checkpoint_id, new_name);
+        }
+        
+        CheckpointCommands::List { agent } => {
+            let checkpoints = checkpoint_mgr.list_checkpoints(agent.as_deref().unwrap_or("")).await?;
+            
+            if checkpoints.is_empty() {
+                println!("No checkpoints found");
+            } else {
+                println!("{:<30} {:<15} {:<20} {}", "ID", "AGENT", "CREATED", "DESCRIPTION");
+                println!("{}", "-".repeat(85));
+                for cp in checkpoints {
+                    println!("{:<30} {:<15} {:<20} {}", cp.id, cp.agent_name, cp.created_at, cp.description);
+                }
+            }
+        }
+    }
+    
+    Ok(())
+}
+
+async fn handle_git_command(command: GitCommands, data_dir: std::path::PathBuf) -> Result<()> {
+    let state_manager = state::StateManager::new(&data_dir);
+    let sw = state_manager.load().await?;
+    let defaults = &sw.defaults;
     let forgejo_url = &defaults.forgejo_url;
     let forgejo_token = &defaults.forgejo_token;
     
     match command {
-        GitCommands::Account { command } => match command {
-            GitAccountCommands::Create { username, password } => {
-                forgejo::create_user(&state.db, forgejo_url, forgejo_token, &username, &password).await?;
-                println!("User '{}' created", username);
+        GitCommands::Users => {
+            let users = forgejo::user::list_users(forgejo_url, forgejo_token).await?;
+            println!("{:<20} {:<30}", "USERNAME", "EMAIL");
+            println!("{}", "-".repeat(50));
+            for user in users {
+                println!("{:<20} {:<30}", user.login, user.email);
             }
-            GitAccountCommands::Delete { username } => {
-                forgejo::delete_user(&state.db, forgejo_url, forgejo_token, &username).await?;
-                println!("User '{}' deleted", username);
+        }
+        
+        GitCommands::CreateUser { username, password, email } => {
+            forgejo::user::create_user(forgejo_url, forgejo_token, &username, &password, &email).await?;
+            println!("User '{}' created", username);
+        }
+        
+        GitCommands::DeleteUser { username } => {
+            forgejo::user::delete_user(forgejo_url, forgejo_token, &username).await?;
+            println!("User '{}' deleted", username);
+        }
+        
+        GitCommands::Orgs => {
+            let orgs = forgejo::org::list_orgs(forgejo_url, forgejo_token).await?;
+            println!("{:<20} {:<30}", "NAME", "FULL NAME");
+            println!("{}", "-".repeat(50));
+            for org in orgs {
+                println!("{:<20} {:<30}", org.username, org.full_name);
             }
-            GitAccountCommands::List => {
-                let users = forgejo::list_users(&state.db).await?;
-                println!("{:<20} {:<30} {}", "USERNAME", "EMAIL", "BOUND AGENT");
-                println!("{}", "-".repeat(70));
-                for user in users {
-                    let bound = state.db.get_agent_by_forgejo_user(&user.username).await?
-                        .map(|a| a.name).unwrap_or_else(|| "-".to_string());
-                    println!("{:<20} {:<30} {}", user.username, user.email, bound);
-                }
+        }
+        
+        GitCommands::CreateOrg { name } => {
+            forgejo::org::create_org(forgejo_url, forgejo_token, &name).await?;
+            println!("Organization '{}' created", name);
+        }
+        
+        GitCommands::DeleteOrg { name } => {
+            forgejo::org::delete_org(forgejo_url, forgejo_token, &name).await?;
+            println!("Organization '{}' deleted", name);
+        }
+        
+        GitCommands::Repos => {
+            let repos = forgejo::repo::list_repos(forgejo_url, forgejo_token, None).await?;
+            println!("{:<30} {:<20} {:<10}", "NAME", "OWNER", "PRIVATE");
+            println!("{}", "-".repeat(60));
+            for repo in repos {
+                println!("{:<30} {:<20} {:<10}", repo.name, repo.owner.login, if repo.private { "yes" } else { "no" });
             }
-            GitAccountCommands::Bind { agent, forgejo_user } => {
-                state.db.bind_forgejo_user(&agent, &forgejo_user).await?;
-                println!("Agent '{}' bound to Forgejo user '{}'", agent, forgejo_user);
-            }
-            GitAccountCommands::Unbind { agent } => {
-                state.db.unbind_forgejo_user(&agent).await?;
-                println!("Agent '{}' unbound from Forgejo user", agent);
-            }
-        },
-        GitCommands::Repo { command } => match command {
-            GitRepoCommands::List { owner } => {
-                let repos = forgejo::list_repos(forgejo_url, forgejo_token, owner.as_deref()).await?;
-                println!("{:<30} {:<15} {:<10}", "NAME", "OWNER", "PRIVATE");
-                println!("{}", "-".repeat(60));
-                for r in repos {
-                    println!("{:<30} {:<15} {:<10}", r.name, r.owner.login, if r.private { "yes" } else { "no" });
-                }
-            }
-            GitRepoCommands::Get { repo } => {
-                let parts: Vec<&str> = repo.split('/').collect();
-                if parts.len() != 2 { eprintln!("Error: Use format 'owner/repo'"); std::process::exit(1); }
-                match forgejo::get_repo(forgejo_url, forgejo_token, parts[0], parts[1]).await? {
-                    Some(r) => {
-                        println!("Repository: {}", r.full_name);
-                        println!("  Description: {}", r.description);
-                        println!("  Private: {}", r.private);
-                        println!("  Default branch: {}", r.default_branch);
-                        println!("  Stars: {} | Forks: {} | Issues: {}", r.stars_count, r.forks_count, r.open_issues_count);
-                    }
-                    None => { eprintln!("Error: Repository '{}' not found", repo); std::process::exit(1); }
-                }
-            }
-            GitRepoCommands::Create { name, description } => {
-                let repo = forgejo::create_repo(forgejo_url, forgejo_token, &name, description.as_deref()).await?;
-                println!("Repository '{}' created: {}", repo.name, repo.html_url);
-            }
-            GitRepoCommands::Delete { repo } => {
-                let parts: Vec<&str> = repo.split('/').collect();
-                if parts.len() != 2 { eprintln!("Error: Use format 'owner/repo'"); std::process::exit(1); }
-                if !confirm(&format!("Delete repository '{}'?", repo)) { return Ok(()); }
-                forgejo::delete_repo(forgejo_url, forgejo_token, parts[0], parts[1]).await?;
-                println!("Repository '{}' deleted", repo);
-            }
-            GitRepoCommands::Transfer { repo, new_owner } => {
-                let parts: Vec<&str> = repo.split('/').collect();
-                if parts.len() != 2 { eprintln!("Error: Use format 'owner/repo'"); std::process::exit(1); }
-                forgejo::transfer_repo(forgejo_url, forgejo_token, parts[0], parts[1], &new_owner).await?;
-                println!("Repository '{}' transferred to '{}'", repo, new_owner);
-            }
-            GitRepoCommands::Update { repo, private, description } => {
-                let parts: Vec<&str> = repo.split('/').collect();
-                if parts.len() != 2 { eprintln!("Error: Use format 'owner/repo'"); std::process::exit(1); }
-                let r = forgejo::update_repo(forgejo_url, forgejo_token, parts[0], parts[1], private, description.as_deref()).await?;
-                println!("Repository '{}' updated", r.full_name);
-            }
-        },
-        GitCommands::Collaborator { command } => match command {
-            GitCollaboratorCommands::List { repo } => {
-                let parts: Vec<&str> = repo.split('/').collect();
-                if parts.len() != 2 { eprintln!("Error: Use format 'owner/repo'"); std::process::exit(1); }
-                let collaborators = forgejo::list_collaborators(forgejo_url, forgejo_token, parts[0], parts[1]).await?;
-                println!("{:<20} {:<10} {:<10} {:<10}", "USERNAME", "ADMIN", "WRITE", "READ");
-                println!("{}", "-".repeat(50));
-                for c in collaborators {
-                    println!("{:<20} {:<10} {:<10} {:<10}", 
-                        c.login, 
-                        if c.permissions.admin { "yes" } else { "no" },
-                        if c.permissions.push { "yes" } else { "no" },
-                        if c.permissions.pull { "yes" } else { "no" });
-                }
-            }
-            GitCollaboratorCommands::Add { repo, username, permission } => {
-                let parts: Vec<&str> = repo.split('/').collect();
-                if parts.len() != 2 { eprintln!("Error: Use format 'owner/repo'"); std::process::exit(1); }
-                forgejo::add_collaborator(forgejo_url, forgejo_token, parts[0], parts[1], &username, permission.as_deref()).await?;
-                println!("Collaborator '{}' added to '{}'", username, repo);
-            }
-            GitCollaboratorCommands::Remove { repo, username } => {
-                let parts: Vec<&str> = repo.split('/').collect();
-                if parts.len() != 2 { eprintln!("Error: Use format 'owner/repo'"); std::process::exit(1); }
-                forgejo::remove_collaborator(forgejo_url, forgejo_token, parts[0], parts[1], &username).await?;
-                println!("Collaborator '{}' removed from '{}'", username, repo);
-            }
-        },
-        GitCommands::Org { command } => match command {
-            GitOrgCommands::List => {
-                let orgs = forgejo::list_orgs(forgejo_url, forgejo_token).await?;
-                println!("{:<20} {:<30}", "NAME", "FULL NAME");
-                println!("{}", "-".repeat(50));
-                for o in orgs {
-                    println!("{:<20} {:<30}", o.login(), o.full_name);
-                }
-            }
-            GitOrgCommands::Create { name } => {
-                let org = forgejo::create_org(forgejo_url, forgejo_token, &name).await?;
-                println!("Organization '{}' created", org.login());
-            }
-            GitOrgCommands::Delete { org } => {
-                if !confirm(&format!("Delete organization '{}'?", org)) { return Ok(()); }
-                forgejo::delete_org(forgejo_url, forgejo_token, &org).await?;
-                println!("Organization '{}' deleted", org);
-            }
-            GitOrgCommands::MemberList { org } => {
-                let members = forgejo::list_org_members(forgejo_url, forgejo_token, &org).await?;
-                println!("Members of '{}':", org);
-                for m in members {
-                    println!("  - {} ({})", m.login, m.full_name);
-                }
-            }
-            GitOrgCommands::MemberAdd { org, username } => {
-                forgejo::add_org_member(forgejo_url, forgejo_token, &org, &username).await?;
-                println!("Member '{}' added to '{}'", username, org);
-            }
-            GitOrgCommands::MemberRemove { org, username } => {
-                forgejo::remove_org_member(forgejo_url, forgejo_token, &org, &username).await?;
-                println!("Member '{}' removed from '{}'", username, org);
-            }
-        },
+        }
+        
+        GitCommands::CreateRepo { owner, name } => {
+            forgejo::repo::create_repo(forgejo_url, forgejo_token, &owner, &name).await?;
+            println!("Repository '{}/{}' created", owner, name);
+        }
+        
+        GitCommands::DeleteRepo { owner, name } => {
+            forgejo::repo::delete_repo(forgejo_url, forgejo_token, &owner, &name).await?;
+            println!("Repository '{}/{}' deleted", owner, name);
+        }
     }
+    
     Ok(())
 }
 
-fn confirm(msg: &str) -> bool {
-    use std::io::Write;
-    print!("{} (y/N): ", msg);
-    std::io::stdout().flush().ok();
-    let mut input = String::new();
-    std::io::stdin().read_line(&mut input).ok();
-    input.trim().to_lowercase() == "y"
-}
-
-async fn handle_config_command(command: ConfigCommands, data_dir: std::path::PathBuf) -> crate::Result<()> {
-    let state = init_state(data_dir.clone()).await?;
+async fn handle_config_command(command: ConfigCommands, data_dir: std::path::PathBuf) -> Result<()> {
+    let state_manager = state::StateManager::new(&data_dir);
+    let sw = state_manager.load().await?;
+    
     match command {
         ConfigCommands::Export => {
             let export_path = data_dir.join("config.yaml");
-            config::export_to_yaml(&state.db, &export_path).await?;
+            config::export_to_yaml(&sw, &export_path).await?;
             println!("Config exported to {:?}", export_path);
         }
         ConfigCommands::Import => {
             let import_path = data_dir.join("config.yaml");
-            config::import_from_yaml(&state.db, &import_path).await?;
+            let imported = config::import_from_yaml(&import_path).await?;
+            state_manager.save(&imported).await?;
             println!("Config imported from {:?}", import_path);
         }
     }
     Ok(())
 }
 
-async fn handle_provider_command(command: ProviderCommands, data_dir: std::path::PathBuf) -> crate::Result<()> {
-    let state = init_state(data_dir).await?;
+async fn handle_provider_command(command: ProviderCommands, data_dir: std::path::PathBuf) -> Result<()> {
+    let state_manager = state::StateManager::new(&data_dir);
+    let mut sw = state_manager.load().await?;
+    
     match command {
         ProviderCommands::List => {
-            let providers = state.db.list_providers().await?;
+            let providers = &sw.providers;
             if providers.is_empty() {
                 println!("No providers found.");
             } else {
-                println!("{:<40} {:<15} {:<10} {:<40}", "ID", "NAME", "TYPE", "BASE_URL");
-                println!("{}", "-".repeat(110));
-                for p in providers {
-                    let status = if p.enabled { "enabled" } else { "disabled" };
-                    println!("{:<40} {:<15} {:<10} {:<40}", p.id, p.name, p.provider_type.as_str(), p.base_url);
-                    println!("{:<40} {:<15} {:<10}", "", "", status);
+                println!("{:<36} {:<15} {:<30}", "ID", "TYPE", "NAME");
+                println!("{}", "-".repeat(85));
+                for (id, p) in providers {
+                    println!("{:<36} {:<15} {:<30}", id, p.provider_type.as_str(), p.name);
                 }
             }
         }
+        
         ProviderCommands::Create { name, provider_type, base_url, api_key } => {
-            let pt = crate::models::ProviderType::from_str(&provider_type)
-                .ok_or_else(|| crate::Error::Validation(format!("Invalid provider type: {}", provider_type)))?;
-            let req = crate::models::CreateProviderRequest { name, provider_type: pt, base_url, api_key };
-            let provider = state.db.create_provider(&req).await?;
+            let pt = ProviderType::from_str(&provider_type)
+                .ok_or_else(|| Error::Validation(format!("Invalid provider type: {}", provider_type)))?;
+            
+            let id = uuid::Uuid::new_v4().to_string();
+            let now = chrono::Utc::now().to_rfc3339();
+            
+            let provider = Provider {
+                id: id.clone(),
+                name,
+                provider_type: pt,
+                base_url,
+                api_key,
+                enabled: true,
+                created_at: now.clone(),
+                updated_at: now,
+            };
+            
+            sw.providers.insert(id.clone(), provider.clone());
+            state_manager.save(&sw).await?;
+            
             println!("Provider '{}' created:", provider.name);
             println!("  ID: {}", provider.id);
             println!("  Type: {}", provider.provider_type.as_str());
-            println!("  Base URL: {}", provider.base_url);
         }
-        ProviderCommands::Get { id } => {
-            match state.db.get_provider(&id).await? {
-                Some(p) => {
-                    println!("Provider: {}", p.name);
-                    println!("  ID: {}", p.id);
-                    println!("  Type: {}", p.provider_type.as_str());
-                    println!("  Base URL: {}", p.base_url);
-                    println!("  Status: {}", if p.enabled { "enabled" } else { "disabled" });
-                }
-                None => { eprintln!("Error: Provider '{}' not found", id); std::process::exit(1); }
-            }
-        }
+        
         ProviderCommands::Delete { id } => {
-            state.db.delete_provider(&id).await?;
+            if sw.providers.remove(&id).is_none() {
+                eprintln!("Provider '{}' not found", id);
+                std::process::exit(1);
+            }
+            state_manager.save(&sw).await?;
             println!("Provider '{}' deleted", id);
         }
-        ProviderCommands::Enable { id } => {
-            state.db.update_provider_enabled(&id, true).await?;
-            println!("Provider '{}' enabled", id);
-        }
-        ProviderCommands::Disable { id } => {
-            state.db.update_provider_enabled(&id, false).await?;
-            println!("Provider '{}' disabled", id);
-        }
     }
+    
     Ok(())
 }
 
-async fn handle_key_command(command: KeyCommands, data_dir: std::path::PathBuf) -> crate::Result<()> {
-    let state = init_state(data_dir).await?;
+async fn handle_key_command(command: KeyCommands, data_dir: std::path::PathBuf) -> Result<()> {
+    let state_manager = state::StateManager::new(&data_dir);
+    let mut sw = state_manager.load().await?;
+    
     match command {
         KeyCommands::List => {
-            let keys = state.db.list_api_keys().await?;
-            let providers = state.db.list_providers().await?;
-            let provider_map: HashMap<_, _> = providers.into_iter().map(|p| (p.id, p.name)).collect();
+            let keys = &sw.api_keys;
+            let providers = &sw.providers;
+            let provider_map: HashMap<_, _> = providers.iter().map(|(k, v)| (k.clone(), v.name.clone())).collect();
             let unknown = "unknown".to_string();
             
             if keys.is_empty() {
                 println!("No API keys found.");
             } else {
-                println!("{:<40} {:<20} {:<20}", "ID", "NAME", "PROVIDER");
-                println!("{}", "-".repeat(90));
-                for k in keys {
+                println!("{:<36} {:<20} {:<20}", "ID", "NAME", "PROVIDER");
+                println!("{}", "-".repeat(80));
+                for (id, k) in keys {
                     let provider_name = provider_map.get(&k.provider_id).unwrap_or(&unknown);
-                    println!("{:<40} {:<20} {:<20}", k.id, k.name, provider_name);
+                    println!("{:<36} {:<20} {:<20}", id, k.name, provider_name);
                 }
             }
         }
+        
         KeyCommands::Create { name, provider } => {
-            let req = crate::models::CreateApiKeyRequest { name, provider_id: provider };
-            let (key, raw_key) = state.db.create_api_key(&req).await?;
-            println!("API key '{}' created:", key.name);
-            println!("  ID: {}", key.id);
-            println!("  Key: {}", raw_key);
-            println!("\n\x1b[33mWarning: Save this key now, it won't be shown again!\x1b[0m");
+            let id = uuid::Uuid::new_v4().to_string();
+            let raw_key = uuid::Uuid::new_v4().to_string();
+            let now = chrono::Utc::now().to_rfc3339();
+            
+            use sha2::{Digest, Sha256};
+            let mut hasher = Sha256::new();
+            hasher.update(raw_key.as_bytes());
+            let key_hash = format!("{:x}", hasher.finalize());
+            
+            let api_key = ApiKey {
+                id: id.clone(),
+                name,
+                key_hash,
+                provider_id: provider,
+                created_at: now.clone(),
+                updated_at: now,
+            };
+            
+            sw.api_keys.insert(id.clone(), api_key.clone());
+            state_manager.save(&sw).await?;
+            
+            println!("API key '{}' created", api_key.name);
+            println!("  ID: {}", api_key.id);
+            println!("  Raw key (save this, it won't be shown again): {}", raw_key);
         }
+        
         KeyCommands::Delete { id } => {
-            state.db.delete_api_key(&id).await?;
+            if sw.api_keys.remove(&id).is_none() {
+                eprintln!("API key '{}' not found", id);
+                std::process::exit(1);
+            }
+            state_manager.save(&sw).await?;
             println!("API key '{}' deleted", id);
         }
     }
+    
     Ok(())
 }
