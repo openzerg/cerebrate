@@ -39,13 +39,20 @@ impl AgentManager {
     }
 
     async fn ensure_btrfs_subvolumes(&self, agents: &std::collections::HashMap<String, Agent>) -> Result<()> {
+        let agents_dir = Path::new("/home/@agents");
+        
+        // Create @agents parent directory if it doesn't exist
+        if !agents_dir.exists() {
+            tracing::info!("Creating @agents directory");
+            tokio::fs::create_dir_all(agents_dir).await?;
+        }
+        
         for agent_name in agents.keys() {
-            let agent_path = Path::new("/home").join("@agents").join(agent_name);
+            let agent_path = agents_dir.join(agent_name);
             if !agent_path.exists() {
                 tracing::info!("Creating btrfs subvolume for agent: {}", agent_name);
                 let status = tokio::process::Command::new("sudo")
-                    .args(["btrfs", "subvolume", "create", &format!("@agents/{}", agent_name)])
-                    .current_dir("/home")
+                    .args(["btrfs", "subvolume", "create", agent_path.to_str().unwrap()])
                     .status()
                     .await
                     .map_err(|e| Error::Io(e))?;
