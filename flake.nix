@@ -12,8 +12,15 @@
       let
         pkgs = import nixpkgs { inherit system; };
         craneLib = crane.mkLib pkgs;
+        inherit (pkgs) lib;
 
-        src = craneLib.cleanCargoSource ./.;
+        # Include templates directory in source
+        src = lib.cleanSourceWith {
+          src = ./.;
+          filter = path: type:
+            (lib.hasInfix "templates" path) ||
+            (craneLib.filterCargoSources path type);
+        };
 
         commonArgs = {
           inherit src;
