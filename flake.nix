@@ -19,7 +19,7 @@
           src = lib.cleanSource ./.;
           filter = path: type:
             (type == "directory" && lib.hasSuffix "templates" path) ||
-            (type == "regular" && lib.hasInfix "/templates/") ||
+            (type == "regular" && lib.hasInfix "/templates/" path) ||
             (craneLib.filterCargoSources path type);
         };
 
