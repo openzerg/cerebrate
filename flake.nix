@@ -16,9 +16,10 @@
 
         # Include templates directory in source
         src = lib.cleanSourceWith {
-          src = ./.;
+          src = lib.cleanSource ./.;
           filter = path: type:
-            (lib.hasInfix "templates" path) ||
+            (type == "directory" && lib.hasSuffix "templates" path) ||
+            (type == "regular" && lib.hasInfix "/templates/") ||
             (craneLib.filterCargoSources path type);
         };
 
