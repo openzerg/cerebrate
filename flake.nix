@@ -15,12 +15,14 @@
         inherit (pkgs) lib;
 
         # Include templates directory in source
+        staticFilter = path: type:
+          (craneLib.filterCargoSources path type) ||
+          (lib.hasInfix "/templates/" path) ||
+          (type == "directory" && lib.hasSuffix "templates" path);
+
         src = lib.cleanSourceWith {
           src = lib.cleanSource ./.;
-          filter = path: type:
-            (type == "directory" && lib.hasSuffix "templates" path) ||
-            (type == "regular" && lib.hasInfix "/templates/" path) ||
-            (craneLib.filterCargoSources path type);
+          filter = staticFilter;
         };
 
         commonArgs = {
