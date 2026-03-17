@@ -52,8 +52,9 @@ impl AgentManager {
             if !agent_path.exists() {
                 tracing::info!("Creating btrfs subvolume for agent: {}", agent_name);
                 
-                // Try to create using btrfs command directly (service runs as root)
-                let status = tokio::process::Command::new("btrfs")
+                // Use full path to btrfs command (NixOS)
+                let btrfs_path = "/run/current-system/sw/bin/btrfs";
+                let status = tokio::process::Command::new(btrfs_path)
                     .args(["subvolume", "create", agent_path.to_str().unwrap()])
                     .status()
                     .await;
