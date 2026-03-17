@@ -51,7 +51,7 @@ in
         RUST_LOG = "info";
       };
 
-      path = with pkgs; [ btrfs-progs nix git jq openssh ];
+      path = with pkgs; [ btrfs-progs git openssh nixos-rebuild ];
 
       serviceConfig = {
         Type = "simple";
