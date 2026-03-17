@@ -42,14 +42,14 @@ impl AgentManager {
         let flake_path = self.system_dir.join("flake.nix");
         if !flake_path.exists() {
             tracing::info!("Creating default flake.nix");
-            let flake_content = include_str!("templates/flake.nix");
+            let flake_content = include_str!("../../../templates/flake.nix");
             tokio::fs::write(&flake_path, flake_content).await?;
         }
 
         let config_path = self.system_dir.join("configuration.nix");
         if !config_path.exists() {
             tracing::info!("Creating default configuration.nix");
-            let config_content = include_str!("templates/configuration.nix");
+            let config_content = include_str!("../../../templates/configuration.nix");
             tokio::fs::write(&config_path, config_content).await?;
         }
 
@@ -75,9 +75,8 @@ impl AgentManager {
             if !agent_path.exists() {
                 tracing::info!("Creating btrfs subvolume for agent: {}", agent_name);
                 
-                // Use full path to btrfs command (NixOS)
-                let btrfs_path = "/run/current-system/sw/bin/btrfs";
-                let status = tokio::process::Command::new(btrfs_path)
+                // Use btrfs from PATH (service runs as root)
+                let status = tokio::process::Command::new("btrfs")
                     .args(["subvolume", "create", agent_path.to_str().unwrap()])
                     .status()
                     .await;

@@ -45,6 +45,7 @@
           packages = with pkgs; [
             rust-analyzer
             cargo-watch
+            btrfs-progs
           ];
         };
       }

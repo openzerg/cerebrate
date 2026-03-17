@@ -49,6 +49,7 @@ in
         ZERG_SWARM_PASSWORD = cfg.password;
         ZERG_SWARM_DATA_DIR = cfg.dataDir;
         RUST_LOG = "info";
+        PATH = "${pkgs.btrfs-progs}/bin:/run/wrappers/bin:$PATH";
       };
 
       serviceConfig = {
