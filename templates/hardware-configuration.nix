@@ -8,7 +8,7 @@
     [ (modulesPath + "/profiles/qemu-guest.nix")
     ];
 
-  boot.initrd.availableKernelModules = [ "ahci" "xhci_pci" "virtio_pci" "virtio_scsi" "sd_mod" "sr_mod" ];
+  boot.initrd.availableKernelModules = [ "ahci" "xhci_pci" "virtio_pci" "virtio_scsi" "sd_mod" ];
   boot.initrd.kernelModules = [ ];
   boot.kernelModules = [ "kvm-intel" ];
   boot.extraModulePackages = [ ];
@@ -19,16 +19,16 @@
       options = [ "subvol=root" ];
     };
 
-  fileSystems."/home" =
-    { device = "/dev/disk/by-uuid/450813ef-5bad-4cf4-bc58-a1b810611f25";
-      fsType = "btrfs";
-      options = [ "subvol=home" ];
-    };
-
   fileSystems."/nix" =
     { device = "/dev/disk/by-uuid/450813ef-5bad-4cf4-bc58-a1b810611f25";
       fsType = "btrfs";
       options = [ "subvol=nix" ];
+    };
+
+  fileSystems."/home" =
+    { device = "/dev/disk/by-uuid/450813ef-5bad-4cf4-bc58-a1b810611f25";
+      fsType = "btrfs";
+      options = [ "subvol=home" ];
     };
 
   fileSystems."/boot" =
