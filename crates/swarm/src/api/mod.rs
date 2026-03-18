@@ -9,13 +9,31 @@ use std::sync::Arc;
 use std::net::SocketAddr;
 use axum::{
     routing::{get, post, delete},
-    Router, middleware,
+    Router, middleware, Json,
 };
 use tower_http::cors::{CorsLayer, Any};
+use serde::Serialize;
 
 pub use types::*;
 use crate::AppState;
 use crate::auth::{AuthConfig, auth_middleware};
+
+const VERSION: &str = env!("CARGO_PKG_VERSION");
+
+#[derive(Serialize)]
+struct HealthResponse {
+    status: &'static str,
+    version: &'static str,
+    name: &'static str,
+}
+
+async fn health_handler() -> Json<HealthResponse> {
+    Json(HealthResponse {
+        status: "ok",
+        version: VERSION,
+        name: "zerg-swarm",
+    })
+}
 
 pub async fn start_server(
     addr: SocketAddr, 
@@ -46,7 +64,7 @@ pub async fn start_server(
         .route_layer(middleware::from_fn_with_state(auth_state.clone(), auth_middleware));
 
     let app = Router::new()
-        .route("/health", get(|| async { "OK" }))
+        .route("/health", get(health_handler))
         .route("/ws", get(websocket::event_ws_handler))
         .route("/ws/vm", get(websocket::vm_ws_handler))
         .nest("/api", api_routes)
