@@ -96,6 +96,8 @@ fn build_bwrap_command(
     cmd.args([
         "--ro-bind", "/nix/store", "/nix/store",
         "--ro-bind", &tool_dir_str, "/tool",
+        "--ro-bind", "/etc/resolv.conf", "/etc/resolv.conf",
+        "--ro-bind", "/etc/hosts", "/etc/hosts",
         "--dev", "/dev",
         "--proc", "/proc",
         "--tmpfs", "/tmp",
