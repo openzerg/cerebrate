@@ -51,7 +51,7 @@ in
         RUST_LOG = "info";
       };
 
-      path = with pkgs; [ btrfs-progs git nixos-rebuild nix ];
+      path = with pkgs; [ btrfs-progs git nixos-rebuild nix python3 bash ];
 
       serviceConfig = {
         Type = "simple";

@@ -153,10 +153,25 @@ impl SkillManager {
         
         let secrets_env = self.load_secrets_env(&skill.id);
         
-        let mut cmd = tokio::process::Command::new("nix-shell");
-        cmd.arg(&skill_dir)
-           .arg("--run")
-           .arg(&format!("{} '{}' '{}'", entrypoint, skill.id, input_json.replace("'", "'\\''")));
+        let shell_nix = skill_dir.join("shell.nix");
+        let use_nix_shell = shell_nix.exists();
+        
+        let mut cmd = if use_nix_shell {
+            let mut c = tokio::process::Command::new("nix-shell");
+            c.arg(&skill_dir)
+             .arg("--run")
+             .arg(&format!("{} '{}' '{}'", entrypoint, skill.id, input_json.replace("'", "'\\''")));
+            c
+        } else {
+            let mut c = tokio::process::Command::new("bash");
+            c.arg("-c")
+             .arg(&format!("cd {} && {} '{}' '{}'", 
+                 skill_dir.display(), 
+                 entrypoint, 
+                 skill.id, 
+                 input_json.replace("'", "'\\''")));
+            c
+        };
         
         for (key, value) in &secrets_env {
             cmd.env(key, value);
