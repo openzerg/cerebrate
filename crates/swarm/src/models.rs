@@ -14,6 +14,8 @@ pub struct State {
     pub api_keys: HashMap<String, ApiKey>,
     #[serde(default)]
     pub forgejo_users: HashMap<String, ForgejoUser>,
+    #[serde(default)]
+    pub skills: HashMap<String, Skill>,
 }
 
 impl State {
@@ -25,6 +27,7 @@ impl State {
             providers: HashMap::new(),
             api_keys: HashMap::new(),
             forgejo_users: HashMap::new(),
+            skills: HashMap::new(),
         }
     }
 }
@@ -152,4 +155,71 @@ pub struct CheckpointMeta {
     pub description: String,
     pub created_at: String,
     pub btrfs_snapshot: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum SkillType {
+    HostScript,
+    AgentScript,
+}
+
+impl SkillType {
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s.to_lowercase().as_str() {
+            "hostscript" | "host_script" => Some(Self::HostScript),
+            "agentscript" | "agent_script" => Some(Self::AgentScript),
+            _ => None,
+        }
+    }
+
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::HostScript => "host_script",
+            Self::AgentScript => "agent_script",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Skill {
+    pub id: String,
+    pub name: String,
+    pub description: String,
+    pub skill_type: SkillType,
+    pub enabled: bool,
+    pub owner_agent: String,
+    #[serde(default)]
+    pub allowed_agents: Vec<String>,
+    pub entrypoint: String,
+    #[serde(default)]
+    pub input_schema: Option<serde_json::Value>,
+    #[serde(default)]
+    pub output_schema: Option<serde_json::Value>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateSkillRequest {
+    pub name: String,
+    pub description: String,
+    pub skill_type: SkillType,
+    pub owner_agent: String,
+    pub entrypoint: String,
+    pub input_schema: Option<serde_json::Value>,
+    pub output_schema: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InvokeSkillRequest {
+    pub input: serde_json::Value,
+    pub caller_agent: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InvokeSkillResponse {
+    pub success: bool,
+    pub output: Option<serde_json::Value>,
+    pub error: Option<String>,
 }

@@ -10,6 +10,7 @@ mod proxy;
 mod protocol;
 mod models;
 mod error;
+mod skill_manager;
 
 use clap::{Parser, Subcommand};
 use std::net::SocketAddr;
@@ -24,6 +25,7 @@ pub use models::*;
 pub struct AppState {
     pub state_manager: state::StateManager,
     pub agent_manager: agent_manager::AgentManager,
+    pub skill_manager: skill_manager::SkillManager,
     pub vm_connections: RwLock<HashMap<String, VmConnection>>,
     pub event_tx: broadcast::Sender<AgentEvent>,
     pub data_dir: std::path::PathBuf,
@@ -105,6 +107,12 @@ enum Commands {
     Key {
         #[command(subcommand)]
         command: KeyCommands,
+    },
+    
+    #[command(about = "Skill library management")]
+    Skill {
+        #[command(subcommand)]
+        command: SkillCommands,
     },
 }
 
@@ -241,6 +249,74 @@ enum KeyCommands {
     Delete { id: String },
 }
 
+#[derive(Subcommand)]
+enum SkillCommands {
+    #[command(about = "List all skills")]
+    List,
+    
+    #[command(about = "Create a new skill")]
+    Create {
+        name: String,
+        #[arg(short, long)]
+        #[arg(help = "Skill type: host_script or agent_script")]
+        skill_type: String,
+        #[arg(short, long)]
+        #[arg(help = "Owner agent name")]
+        owner: String,
+        #[arg(short, long)]
+        #[arg(help = "Entrypoint script (e.g., script.py)")]
+        entrypoint: String,
+    },
+    
+    #[command(about = "Get skill details")]
+    Get { id: String },
+    
+    #[command(about = "Delete a skill")]
+    Delete { id: String },
+    
+    #[command(about = "Authorize an agent to use a skill")]
+    Authorize {
+        skill_id: String,
+        agent_name: String,
+    },
+    
+    #[command(about = "Revoke an agent's access to a skill")]
+    Revoke {
+        skill_id: String,
+        agent_name: String,
+    },
+    
+    #[command(about = "Set a secret for a skill")]
+    SetSecret {
+        skill_id: String,
+        key: String,
+        value: String,
+    },
+    
+    #[command(about = "List secrets for a skill")]
+    ListSecrets { skill_id: String },
+    
+    #[command(about = "Upload a file to a skill")]
+    UploadFile {
+        skill_id: String,
+        filename: String,
+        #[arg(short, long)]
+        #[arg(help = "File content")]
+        content: String,
+    },
+    
+    #[command(about = "Invoke a skill")]
+    Invoke {
+        skill_id: String,
+        #[arg(short, long)]
+        #[arg(help = "Caller agent name")]
+        caller: String,
+        #[arg(short, long)]
+        #[arg(help = "JSON input")]
+        input: String,
+    },
+}
+
 fn setup_logging() {
     tracing_subscriber::fmt()
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
@@ -270,12 +346,14 @@ async fn init_state(data_dir: std::path::PathBuf) -> Result<Arc<AppState>> {
 
     let state_manager = state::StateManager::new(&data_dir);
     let agent_manager = agent_manager::AgentManager::new(&system_dir);
+    let skill_manager = skill_manager::SkillManager::new(data_dir.clone());
     let (event_tx, _) = broadcast::channel::<AgentEvent>(256);
     let (apply_tx, apply_rx) = tokio::sync::mpsc::unbounded_channel::<()>();
 
     let state = Arc::new(AppState {
         state_manager,
         agent_manager,
+        skill_manager,
         vm_connections: RwLock::new(HashMap::new()),
         event_tx,
         data_dir: data_dir.clone(),
@@ -402,6 +480,7 @@ async fn main() -> Result<()> {
         Commands::Config { command } => handle_config_command(command, data_dir.clone()).await?,
         Commands::Provider { command } => handle_provider_command(command, data_dir.clone()).await?,
         Commands::Key { command } => handle_key_command(command, data_dir.clone()).await?,
+        Commands::Skill { command } => handle_skill_command(command, data_dir.clone()).await?,
     }
 
     Ok(())
@@ -792,6 +871,199 @@ async fn handle_key_command(command: KeyCommands, data_dir: std::path::PathBuf) 
             }
             state_manager.save(&sw).await?;
             println!("API key '{}' deleted", id);
+        }
+    }
+    
+    Ok(())
+}
+
+async fn handle_skill_command(command: SkillCommands, data_dir: std::path::PathBuf) -> Result<()> {
+    let state_manager = state::StateManager::new(&data_dir);
+    let mut sw = state_manager.load().await?;
+    let skill_mgr = skill_manager::SkillManager::new(data_dir.clone());
+    
+    match command {
+        SkillCommands::List => {
+            let skills = &sw.skills;
+            if skills.is_empty() {
+                println!("No skills found.");
+            } else {
+                println!("{:<36} {:<15} {:<20} {:<8}", "ID", "TYPE", "NAME", "ENABLED");
+                println!("{}", "-".repeat(85));
+                for (id, s) in skills {
+                    println!("{:<36} {:<15} {:<20} {:<8}", 
+                        id, 
+                        s.skill_type.as_str(), 
+                        s.name,
+                        if s.enabled { "yes" } else { "no" }
+                    );
+                }
+            }
+        }
+        
+        SkillCommands::Create { name, skill_type, owner, entrypoint } => {
+            let st = SkillType::from_str(&skill_type)
+                .ok_or_else(|| Error::Validation(format!("Invalid skill type: {}", skill_type)))?;
+            
+            let id = uuid::Uuid::new_v4().to_string();
+            let now = chrono::Utc::now().to_rfc3339();
+            
+            let skill = Skill {
+                id: id.clone(),
+                name,
+                description: String::new(),
+                skill_type: st,
+                enabled: true,
+                owner_agent: owner.clone(),
+                allowed_agents: vec![owner.clone()],
+                entrypoint,
+                input_schema: None,
+                output_schema: None,
+                created_at: now.clone(),
+                updated_at: now,
+            };
+            
+            sw.skills.insert(id.clone(), skill.clone());
+            state_manager.save(&sw).await?;
+            skill_mgr.ensure_directories().await?;
+            
+            println!("Skill '{}' created:", skill.name);
+            println!("  ID: {}", skill.id);
+            println!("  Type: {}", skill.skill_type.as_str());
+            println!("  Owner: {}", skill.owner_agent);
+        }
+        
+        SkillCommands::Get { id } => {
+            match sw.skills.get(&id) {
+                Some(skill) => {
+                    println!("Skill: {} ({})", skill.name, skill.id);
+                    println!("  Type: {}", skill.skill_type.as_str());
+                    println!("  Description: {}", skill.description);
+                    println!("  Owner: {}", skill.owner_agent);
+                    println!("  Enabled: {}", skill.enabled);
+                    println!("  Entrypoint: {}", skill.entrypoint);
+                    println!("  Allowed agents: {:?}", skill.allowed_agents);
+                    
+                    let secrets = skill_mgr.list_secrets(&id).await?;
+                    if !secrets.is_empty() {
+                        println!("  Secrets: {:?}", secrets);
+                    }
+                    
+                    let files = skill_mgr.list_skill_files(&id).await?;
+                    if !files.is_empty() {
+                        println!("  Files: {:?}", files);
+                    }
+                }
+                None => {
+                    eprintln!("Skill '{}' not found", id);
+                    std::process::exit(1);
+                }
+            }
+        }
+        
+        SkillCommands::Delete { id } => {
+            if sw.skills.remove(&id).is_none() {
+                eprintln!("Skill '{}' not found", id);
+                std::process::exit(1);
+            }
+            state_manager.save(&sw).await?;
+            skill_mgr.delete_skill_files(&id).await?;
+            skill_mgr.delete_all_secrets(&id).await?;
+            println!("Skill '{}' deleted", id);
+        }
+        
+        SkillCommands::Authorize { skill_id, agent_name } => {
+            if let Some(skill) = sw.skills.get_mut(&skill_id) {
+                if !skill.allowed_agents.contains(&agent_name) {
+                    skill.allowed_agents.push(agent_name.clone());
+                    skill.updated_at = chrono::Utc::now().to_rfc3339();
+                    let skill_name = skill.name.clone();
+                    state_manager.save(&sw).await?;
+                    println!("Agent '{}' authorized for skill '{}'", agent_name, skill_name);
+                } else {
+                    let skill_name = skill.name.clone();
+                    println!("Agent '{}' already authorized for skill '{}'", agent_name, skill_name);
+                }
+            } else {
+                eprintln!("Skill '{}' not found", skill_id);
+                std::process::exit(1);
+            }
+        }
+        
+        SkillCommands::Revoke { skill_id, agent_name } => {
+            if let Some(skill) = sw.skills.get_mut(&skill_id) {
+                skill.allowed_agents.retain(|a| a != &agent_name);
+                skill.updated_at = chrono::Utc::now().to_rfc3339();
+                let skill_name = skill.name.clone();
+                state_manager.save(&sw).await?;
+                println!("Agent '{}' revoked from skill '{}'", agent_name, skill_name);
+            } else {
+                eprintln!("Skill '{}' not found", skill_id);
+                std::process::exit(1);
+            }
+        }
+        
+        SkillCommands::SetSecret { skill_id, key, value } => {
+            if !sw.skills.contains_key(&skill_id) {
+                eprintln!("Skill '{}' not found", skill_id);
+                std::process::exit(1);
+            }
+            skill_mgr.set_secret(&skill_id, &key, &value).await?;
+            println!("Secret '{}' set for skill '{}'", key, skill_id);
+        }
+        
+        SkillCommands::ListSecrets { skill_id } => {
+            if !sw.skills.contains_key(&skill_id) {
+                eprintln!("Skill '{}' not found", skill_id);
+                std::process::exit(1);
+            }
+            let secrets = skill_mgr.list_secrets(&skill_id).await?;
+            if secrets.is_empty() {
+                println!("No secrets found for skill '{}'", skill_id);
+            } else {
+                println!("Secrets for skill '{}':", skill_id);
+                for key in secrets {
+                    println!("  - {}", key);
+                }
+            }
+        }
+        
+        SkillCommands::UploadFile { skill_id, filename, content } => {
+            if !sw.skills.contains_key(&skill_id) {
+                eprintln!("Skill '{}' not found", skill_id);
+                std::process::exit(1);
+            }
+            skill_mgr.write_skill_file(&skill_id, &filename, &content).await?;
+            println!("File '{}' uploaded to skill '{}'", filename, skill_id);
+        }
+        
+        SkillCommands::Invoke { skill_id, caller, input } => {
+            let skill = sw.skills.get(&skill_id)
+                .ok_or_else(|| Error::NotFound(format!("Skill '{}' not found", skill_id)))?
+                .clone();
+            
+            if !skill_mgr.check_authorization(&skill, &caller) {
+                eprintln!("Agent '{}' is not authorized to invoke skill '{}'", caller, skill_id);
+                std::process::exit(1);
+            }
+            
+            let input_json: serde_json::Value = serde_json::from_str(&input)
+                .map_err(|e| Error::Validation(format!("Invalid JSON input: {}", e)))?;
+            
+            let response = skill_mgr.invoke_host_script(&skill, &input_json).await?;
+            
+            if response.success {
+                println!("Skill '{}' executed successfully:", skill.name);
+                if let Some(output) = response.output {
+                    println!("{}", serde_json::to_string_pretty(&output)?);
+                }
+            } else {
+                eprintln!("Skill '{}' execution failed:", skill.name);
+                if let Some(error) = response.error {
+                    eprintln!("{}", error);
+                }
+                std::process::exit(1);
+            }
         }
     }
     
