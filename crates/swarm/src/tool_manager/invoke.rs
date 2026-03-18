@@ -193,6 +193,7 @@ fn build_bwrap_command(
         "--ro-bind", &tool_dir_str, "/tool",
         "--ro-bind", "/etc/resolv.conf", "/etc/resolv.conf",
         "--ro-bind", "/etc/hosts", "/etc/hosts",
+        "--ro-bind", "/etc/ssl", "/etc/ssl",
         "--dev", "/dev",
         "--proc", "/proc",
         "--tmpfs", "/tmp",
