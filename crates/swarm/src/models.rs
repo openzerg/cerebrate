@@ -181,17 +181,52 @@ impl SkillType {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum NetworkMode {
+    #[default]
+    Open,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct NetworkPermissions {
+    #[serde(default)]
+    pub mode: NetworkMode,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum FilesystemPermissions {
+    #[default]
+    None,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct SkillPermissions {
+    #[serde(default)]
+    pub network: NetworkPermissions,
+    #[serde(default)]
+    pub filesystem: FilesystemPermissions,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Skill {
     pub id: String,
     pub name: String,
+    pub version: String,
     pub description: String,
     pub skill_type: SkillType,
     pub enabled: bool,
-    pub owner_agent: String,
+    pub author_agent: String,
     #[serde(default)]
     pub allowed_agents: Vec<String>,
+
+    pub forgejo_repo: String,
+    pub git_commit: String,
+
     pub entrypoint: String,
+    #[serde(default)]
+    pub permissions: SkillPermissions,
     #[serde(default)]
     pub input_schema: Option<serde_json::Value>,
     #[serde(default)]
@@ -203,15 +238,8 @@ pub struct Skill {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateSkillRequest {
     pub name: String,
-    #[serde(default)]
-    pub description: String,
-    pub skill_type: SkillType,
-    pub owner_agent: String,
-    pub entrypoint: String,
-    #[serde(default)]
-    pub input_schema: Option<serde_json::Value>,
-    #[serde(default)]
-    pub output_schema: Option<serde_json::Value>,
+    pub author_agent: String,
+    pub forgejo_repo: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -225,4 +253,20 @@ pub struct InvokeSkillResponse {
     pub success: bool,
     pub output: Option<serde_json::Value>,
     pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SkillMetadata {
+    pub name: String,
+    pub version: String,
+    pub description: String,
+    pub entrypoint: String,
+    #[serde(default)]
+    pub skill_type: Option<String>,
+    #[serde(default)]
+    pub permissions: SkillPermissions,
+    #[serde(default)]
+    pub input_schema: Option<serde_json::Value>,
+    #[serde(default)]
+    pub output_schema: Option<serde_json::Value>,
 }

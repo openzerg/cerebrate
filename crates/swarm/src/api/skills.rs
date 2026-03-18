@@ -1,4 +1,4 @@
-use crate::models::{CreateSkillRequest, InvokeSkillRequest, InvokeSkillResponse, Skill, SkillType};
+use crate::models::{CreateSkillRequest, InvokeSkillRequest, InvokeSkillResponse, Skill, SkillMetadata, SkillType};
 use crate::AppState;
 use super::types::ApiResponse;
 use axum::{
@@ -16,12 +16,6 @@ pub struct SetSecretRequest {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct UploadFileRequest {
-    pub filename: String,
-    pub content: String,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
 pub struct AuthorizeRequest {
     pub agent_name: String,
 }
@@ -30,11 +24,14 @@ pub struct AuthorizeRequest {
 pub struct SkillInfo {
     pub id: String,
     pub name: String,
+    pub version: String,
     pub description: String,
     pub skill_type: String,
     pub enabled: bool,
-    pub owner_agent: String,
+    pub author_agent: String,
     pub allowed_agents: Vec<String>,
+    pub forgejo_repo: String,
+    pub git_commit: String,
     pub entrypoint: String,
     pub created_at: String,
     pub updated_at: String,
@@ -45,11 +42,14 @@ impl From<Skill> for SkillInfo {
         SkillInfo {
             id: skill.id,
             name: skill.name,
+            version: skill.version,
             description: skill.description,
             skill_type: skill.skill_type.as_str().to_string(),
             enabled: skill.enabled,
-            owner_agent: skill.owner_agent,
+            author_agent: skill.author_agent,
             allowed_agents: skill.allowed_agents,
+            forgejo_repo: skill.forgejo_repo,
+            git_commit: skill.git_commit,
             entrypoint: skill.entrypoint,
             created_at: skill.created_at,
             updated_at: skill.updated_at,
@@ -59,14 +59,14 @@ impl From<Skill> for SkillInfo {
 
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
-        .route("/skills", get(list_skills).post(create_skill))
-        .route("/skills/{id}", get(get_skill).delete(delete_skill))
-        .route("/skills/{id}/secrets", get(list_secrets).post(set_secret))
-        .route("/skills/{id}/secrets/{key}", delete(delete_secret))
-        .route("/skills/{id}/authorize", post(authorize_agent))
-        .route("/skills/{id}/revoke", post(revoke_agent))
-        .route("/skills/{id}/files", post(upload_file))
-        .route("/skills/{id}/invoke", post(invoke_skill))
+        .route("/skills", get(list_skills).post(clone_skill))
+        .route("/skills/{name}", get(get_skill).delete(delete_skill))
+        .route("/skills/{name}/pull", post(pull_skill))
+        .route("/skills/{name}/secrets", get(list_secrets).post(set_secret))
+        .route("/skills/{name}/secrets/{key}", delete(delete_secret))
+        .route("/skills/{name}/authorize", post(authorize_agent))
+        .route("/skills/{name}/revoke", post(revoke_agent))
+        .route("/skills/{name}/invoke", post(invoke_skill))
 }
 
 pub async fn list_skills(
@@ -83,20 +83,20 @@ pub async fn list_skills(
 
 pub async fn get_skill(
     State(state): State<Arc<AppState>>,
-    Path(id): Path<String>,
+    Path(name): Path<String>,
 ) -> Json<ApiResponse<SkillInfo>> {
     let sw = match state.state_manager.load().await {
         Ok(s) => s,
         Err(e) => return Json(ApiResponse::error(e.to_string())),
     };
     
-    match sw.skills.get(&id) {
+    match sw.skills.get(&name) {
         Some(skill) => Json(ApiResponse::success(SkillInfo::from(skill.clone()))),
-        None => Json(ApiResponse::error(format!("Skill '{}' not found", id))),
+        None => Json(ApiResponse::error(format!("Skill '{}' not found", name))),
     }
 }
 
-pub async fn create_skill(
+pub async fn clone_skill(
     State(state): State<Arc<AppState>>,
     Json(req): Json<CreateSkillRequest>,
 ) -> Json<ApiResponse<SkillInfo>> {
@@ -105,67 +105,136 @@ pub async fn create_skill(
         Err(e) => return Json(ApiResponse::error(e.to_string())),
     };
     
-    if !sw.agents.contains_key(&req.owner_agent) {
-        return Json(ApiResponse::error(format!("Agent '{}' not found", req.owner_agent)));
+    if sw.skills.contains_key(&req.name) {
+        return Json(ApiResponse::error(format!("Skill '{}' already exists", req.name)));
     }
+    
+    if !sw.agents.contains_key(&req.author_agent) {
+        return Json(ApiResponse::error(format!("Agent '{}' not found", req.author_agent)));
+    }
+    
+    if let Err(e) = state.skill_manager.clone_skill(&req.name, &req.forgejo_repo).await {
+        return Json(ApiResponse::error(format!("Failed to clone skill: {}", e)));
+    }
+    
+    let metadata = match state.skill_manager.parse_skill_md(&req.name) {
+        Ok(m) => m,
+        Err(e) => {
+            let _ = state.skill_manager.delete_skill(&req.name).await;
+            return Json(ApiResponse::error(format!("Failed to parse SKILL.md: {}", e)));
+        }
+    };
+    
+    let git_commit = match state.skill_manager.get_git_commit(&req.name).await {
+        Ok(c) => c,
+        Err(e) => {
+            let _ = state.skill_manager.delete_skill(&req.name).await;
+            return Json(ApiResponse::error(format!("Failed to get git commit: {}", e)));
+        }
+    };
+    
+    let skill_type = metadata.skill_type
+        .and_then(|s| SkillType::from_str(&s))
+        .unwrap_or(SkillType::HostScript);
     
     let id = uuid::Uuid::new_v4().to_string();
     let now = chrono::Utc::now().to_rfc3339();
     
     let skill = Skill {
-        id: id.clone(),
-        name: req.name,
-        description: String::new(),
-        skill_type: req.skill_type,
+        id,
+        name: req.name.clone(),
+        version: metadata.version,
+        description: metadata.description,
+        skill_type,
         enabled: true,
-        owner_agent: req.owner_agent.clone(),
-        allowed_agents: vec![req.owner_agent],
-        entrypoint: req.entrypoint,
-        input_schema: req.input_schema,
-        output_schema: req.output_schema,
+        author_agent: req.author_agent.clone(),
+        allowed_agents: vec![req.author_agent],
+        forgejo_repo: req.forgejo_repo,
+        git_commit,
+        entrypoint: metadata.entrypoint,
+        permissions: metadata.permissions,
+        input_schema: metadata.input_schema,
+        output_schema: metadata.output_schema,
         created_at: now.clone(),
         updated_at: now,
     };
     
-    sw.skills.insert(id.clone(), skill.clone());
+    sw.skills.insert(req.name.clone(), skill.clone());
     
     if let Err(e) = state.state_manager.save(&sw).await {
-        return Json(ApiResponse::error(e.to_string()));
-    }
-    
-    if let Err(e) = state.skill_manager.ensure_directories().await {
+        let _ = state.skill_manager.delete_skill(&req.name).await;
         return Json(ApiResponse::error(e.to_string()));
     }
     
     Json(ApiResponse::success(SkillInfo::from(skill)))
 }
 
+pub async fn pull_skill(
+    State(state): State<Arc<AppState>>,
+    Path(name): Path<String>,
+) -> Json<ApiResponse<SkillInfo>> {
+    let mut sw = match state.state_manager.load().await {
+        Ok(s) => s,
+        Err(e) => return Json(ApiResponse::error(e.to_string())),
+    };
+    
+    if !sw.skills.contains_key(&name) {
+        return Json(ApiResponse::error(format!("Skill '{}' not found", name)));
+    }
+    
+    let new_commit = match state.skill_manager.pull_skill(&name).await {
+        Ok(c) => c,
+        Err(e) => return Json(ApiResponse::error(format!("Failed to pull skill: {}", e))),
+    };
+    
+    let metadata = match state.skill_manager.parse_skill_md(&name) {
+        Ok(m) => m,
+        Err(e) => return Json(ApiResponse::error(format!("Failed to parse SKILL.md: {}", e))),
+    };
+    
+    if let Some(s) = sw.skills.get_mut(&name) {
+        s.git_commit = new_commit;
+        s.version = metadata.version;
+        s.description = metadata.description;
+        s.entrypoint = metadata.entrypoint;
+        s.permissions = metadata.permissions;
+        s.input_schema = metadata.input_schema;
+        s.output_schema = metadata.output_schema;
+        s.updated_at = chrono::Utc::now().to_rfc3339();
+        
+        let skill = s.clone();
+        let _ = state.state_manager.save(&sw).await;
+        return Json(ApiResponse::success(SkillInfo::from(skill)));
+    }
+    
+    Json(ApiResponse::error(format!("Skill '{}' not found", name)))
+}
+
 pub async fn delete_skill(
     State(state): State<Arc<AppState>>,
-    Path(id): Path<String>,
+    Path(name): Path<String>,
 ) -> Json<ApiResponse<String>> {
     let mut sw = match state.state_manager.load().await {
         Ok(s) => s,
         Err(e) => return Json(ApiResponse::error(e.to_string())),
     };
     
-    if sw.skills.remove(&id).is_none() {
-        return Json(ApiResponse::error(format!("Skill '{}' not found", id)));
+    if sw.skills.remove(&name).is_none() {
+        return Json(ApiResponse::error(format!("Skill '{}' not found", name)));
     }
     
     if let Err(e) = state.state_manager.save(&sw).await {
         return Json(ApiResponse::error(e.to_string()));
     }
     
-    let _ = state.skill_manager.delete_skill_files(&id).await;
-    let _ = state.skill_manager.delete_all_secrets(&id).await;
+    let _ = state.skill_manager.delete_skill(&name).await;
     
-    Json(ApiResponse::success(format!("Skill '{}' deleted", id)))
+    Json(ApiResponse::success(format!("Skill '{}' deleted", name)))
 }
 
 pub async fn set_secret(
     State(state): State<Arc<AppState>>,
-    Path(id): Path<String>,
+    Path(name): Path<String>,
     Json(req): Json<SetSecretRequest>,
 ) -> Json<ApiResponse<String>> {
     let sw = match state.state_manager.load().await {
@@ -173,11 +242,11 @@ pub async fn set_secret(
         Err(e) => return Json(ApiResponse::error(e.to_string())),
     };
     
-    if !sw.skills.contains_key(&id) {
-        return Json(ApiResponse::error(format!("Skill '{}' not found", id)));
+    if !sw.skills.contains_key(&name) {
+        return Json(ApiResponse::error(format!("Skill '{}' not found", name)));
     }
     
-    if let Err(e) = state.skill_manager.set_secret(&id, &req.key, &req.value).await {
+    if let Err(e) = state.skill_manager.set_secret(&name, &req.key, &req.value).await {
         return Json(ApiResponse::error(e.to_string()));
     }
     
@@ -186,18 +255,18 @@ pub async fn set_secret(
 
 pub async fn list_secrets(
     State(state): State<Arc<AppState>>,
-    Path(id): Path<String>,
+    Path(name): Path<String>,
 ) -> Json<ApiResponse<Vec<String>>> {
     let sw = match state.state_manager.load().await {
         Ok(s) => s,
         Err(e) => return Json(ApiResponse::error(e.to_string())),
     };
     
-    if !sw.skills.contains_key(&id) {
-        return Json(ApiResponse::error(format!("Skill '{}' not found", id)));
+    if !sw.skills.contains_key(&name) {
+        return Json(ApiResponse::error(format!("Skill '{}' not found", name)));
     }
     
-    match state.skill_manager.list_secrets(&id).await {
+    match state.skill_manager.list_secrets(&name).await {
         Ok(secrets) => Json(ApiResponse::success(secrets)),
         Err(e) => Json(ApiResponse::error(e.to_string())),
     }
@@ -205,18 +274,18 @@ pub async fn list_secrets(
 
 pub async fn delete_secret(
     State(state): State<Arc<AppState>>,
-    Path((id, key)): Path<(String, String)>,
+    Path((name, key)): Path<(String, String)>,
 ) -> Json<ApiResponse<String>> {
     let sw = match state.state_manager.load().await {
         Ok(s) => s,
         Err(e) => return Json(ApiResponse::error(e.to_string())),
     };
     
-    if !sw.skills.contains_key(&id) {
-        return Json(ApiResponse::error(format!("Skill '{}' not found", id)));
+    if !sw.skills.contains_key(&name) {
+        return Json(ApiResponse::error(format!("Skill '{}' not found", name)));
     }
     
-    if let Err(e) = state.skill_manager.delete_secret(&id, &key).await {
+    if let Err(e) = state.skill_manager.delete_secret(&name, &key).await {
         return Json(ApiResponse::error(e.to_string()));
     }
     
@@ -225,7 +294,7 @@ pub async fn delete_secret(
 
 pub async fn authorize_agent(
     State(state): State<Arc<AppState>>,
-    Path(id): Path<String>,
+    Path(name): Path<String>,
     Json(req): Json<AuthorizeRequest>,
 ) -> Json<ApiResponse<String>> {
     let mut sw = match state.state_manager.load().await {
@@ -237,25 +306,25 @@ pub async fn authorize_agent(
         return Json(ApiResponse::error(format!("Agent '{}' not found", req.agent_name)));
     }
     
-    match sw.skills.get_mut(&id) {
+    match sw.skills.get_mut(&name) {
         Some(skill) => {
-            let skill_name = skill.name.clone();
             if !skill.allowed_agents.contains(&req.agent_name) {
                 skill.allowed_agents.push(req.agent_name.clone());
                 skill.updated_at = chrono::Utc::now().to_rfc3339();
-                if let Err(e) = state.state_manager.save(&sw).await {
-                    return Json(ApiResponse::error(e.to_string()));
-                }
+            }
+            let skill_name = skill.name.clone();
+            if let Err(e) = state.state_manager.save(&sw).await {
+                return Json(ApiResponse::error(e.to_string()));
             }
             Json(ApiResponse::success(format!("Agent '{}' authorized for skill '{}'", req.agent_name, skill_name)))
         }
-        None => Json(ApiResponse::error(format!("Skill '{}' not found", id))),
+        None => Json(ApiResponse::error(format!("Skill '{}' not found", name))),
     }
 }
 
 pub async fn revoke_agent(
     State(state): State<Arc<AppState>>,
-    Path(id): Path<String>,
+    Path(name): Path<String>,
     Json(req): Json<AuthorizeRequest>,
 ) -> Json<ApiResponse<String>> {
     let mut sw = match state.state_manager.load().await {
@@ -263,7 +332,7 @@ pub async fn revoke_agent(
         Err(e) => return Json(ApiResponse::error(e.to_string())),
     };
     
-    match sw.skills.get_mut(&id) {
+    match sw.skills.get_mut(&name) {
         Some(skill) => {
             skill.allowed_agents.retain(|a| a != &req.agent_name);
             skill.updated_at = chrono::Utc::now().to_rfc3339();
@@ -273,34 +342,13 @@ pub async fn revoke_agent(
             }
             Json(ApiResponse::success(format!("Agent '{}' revoked from skill '{}'", req.agent_name, skill_name)))
         }
-        None => Json(ApiResponse::error(format!("Skill '{}' not found", id))),
+        None => Json(ApiResponse::error(format!("Skill '{}' not found", name))),
     }
-}
-
-pub async fn upload_file(
-    State(state): State<Arc<AppState>>,
-    Path(id): Path<String>,
-    Json(req): Json<UploadFileRequest>,
-) -> Json<ApiResponse<String>> {
-    let sw = match state.state_manager.load().await {
-        Ok(s) => s,
-        Err(e) => return Json(ApiResponse::error(e.to_string())),
-    };
-    
-    if !sw.skills.contains_key(&id) {
-        return Json(ApiResponse::error(format!("Skill '{}' not found", id)));
-    }
-    
-    if let Err(e) = state.skill_manager.write_skill_file(&id, &req.filename, &req.content).await {
-        return Json(ApiResponse::error(e.to_string()));
-    }
-    
-    Json(ApiResponse::success(format!("File '{}' uploaded", req.filename)))
 }
 
 pub async fn invoke_skill(
     State(state): State<Arc<AppState>>,
-    Path(id): Path<String>,
+    Path(name): Path<String>,
     Json(req): Json<InvokeSkillRequest>,
 ) -> Json<InvokeSkillResponse> {
     let sw = match state.state_manager.load().await {
@@ -312,12 +360,12 @@ pub async fn invoke_skill(
         }),
     };
     
-    let skill = match sw.skills.get(&id) {
+    let skill = match sw.skills.get(&name) {
         Some(s) => s.clone(),
         None => return Json(InvokeSkillResponse {
             success: false,
             output: None,
-            error: Some(format!("Skill '{}' not found", id)),
+            error: Some(format!("Skill '{}' not found", name)),
         }),
     };
     
@@ -349,19 +397,11 @@ pub async fn invoke_skill(
             }
         }
         SkillType::AgentScript => {
-            invoke_agent_script(state, skill, req).await
+            Json(InvokeSkillResponse {
+                success: false,
+                output: None,
+                error: Some("AgentScript execution requires agent container support".to_string()),
+            })
         }
     }
-}
-
-async fn invoke_agent_script(
-    state: Arc<AppState>,
-    skill: Skill,
-    req: InvokeSkillRequest,
-) -> Json<InvokeSkillResponse> {
-    Json(InvokeSkillResponse {
-        success: false,
-        output: None,
-        error: Some("AgentScript execution requires openzerg agent support. Please ensure the agent is running with skill execution enabled.".to_string()),
-    })
 }

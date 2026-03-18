@@ -259,60 +259,51 @@ enum SkillCommands {
     #[command(about = "List all skills")]
     List,
     
-    #[command(about = "Create a new skill")]
-    Create {
+    #[command(about = "Clone a skill from Forgejo")]
+    Clone {
         name: String,
         #[arg(short, long)]
-        #[arg(help = "Skill type: host_script or agent_script")]
-        skill_type: String,
+        #[arg(help = "Forgejo repository path (e.g., skills/brave-search)")]
+        repo: String,
         #[arg(short, long)]
-        #[arg(help = "Owner agent name")]
-        owner: String,
-        #[arg(short, long)]
-        #[arg(help = "Entrypoint script (e.g., script.py)")]
-        entrypoint: String,
+        #[arg(help = "Author agent name")]
+        author: String,
     },
     
+    #[command(about = "Pull latest changes for a skill")]
+    Pull { name: String },
+    
     #[command(about = "Get skill details")]
-    Get { id: String },
+    Get { name: String },
     
     #[command(about = "Delete a skill")]
-    Delete { id: String },
+    Delete { name: String },
     
     #[command(about = "Authorize an agent to use a skill")]
     Authorize {
-        skill_id: String,
+        name: String,
         agent_name: String,
     },
     
     #[command(about = "Revoke an agent's access to a skill")]
     Revoke {
-        skill_id: String,
+        name: String,
         agent_name: String,
     },
     
     #[command(about = "Set a secret for a skill")]
     SetSecret {
-        skill_id: String,
+        name: String,
         key: String,
         value: String,
     },
     
     #[command(about = "List secrets for a skill")]
-    ListSecrets { skill_id: String },
-    
-    #[command(about = "Upload a file to a skill")]
-    UploadFile {
-        skill_id: String,
-        filename: String,
-        #[arg(short, long)]
-        #[arg(help = "File content")]
-        content: String,
-    },
+    ListSecrets { name: String },
     
     #[command(about = "Invoke a skill")]
     Invoke {
-        skill_id: String,
+        name: String,
         #[arg(short, long)]
         #[arg(help = "Caller agent name")]
         caller: String,
@@ -351,7 +342,12 @@ async fn init_state(data_dir: std::path::PathBuf) -> Result<Arc<AppState>> {
 
     let state_manager = state::StateManager::new(&data_dir);
     let agent_manager = agent_manager::AgentManager::new(&system_dir);
-    let skill_manager = skill_manager::SkillManager::new(data_dir.clone());
+    
+    let sw = state_manager.load().await?;
+    let forgejo_url = sw.defaults.forgejo_url.clone();
+    let forgejo_token = sw.defaults.forgejo_token.clone();
+    
+    let skill_manager = skill_manager::SkillManager::new(data_dir.clone(), forgejo_url, forgejo_token);
     let (event_tx, _) = broadcast::channel::<AgentEvent>(256);
     let (apply_tx, apply_rx) = tokio::sync::mpsc::unbounded_channel::<()>();
 
@@ -886,7 +882,11 @@ async fn handle_key_command(command: KeyCommands, data_dir: std::path::PathBuf) 
 async fn handle_skill_command(command: SkillCommands, data_dir: std::path::PathBuf) -> Result<()> {
     let state_manager = state::StateManager::new(&data_dir);
     let mut sw = state_manager.load().await?;
-    let skill_mgr = skill_manager::SkillManager::new(data_dir.clone());
+    let skill_mgr = skill_manager::SkillManager::new(
+        data_dir.clone(),
+        sw.defaults.forgejo_url.clone(),
+        sw.defaults.forgejo_token.clone(),
+    );
     
     match command {
         SkillCommands::List => {
@@ -894,92 +894,135 @@ async fn handle_skill_command(command: SkillCommands, data_dir: std::path::PathB
             if skills.is_empty() {
                 println!("No skills found.");
             } else {
-                println!("{:<36} {:<15} {:<20} {:<8}", "ID", "TYPE", "NAME", "ENABLED");
-                println!("{}", "-".repeat(85));
-                for (id, s) in skills {
-                    println!("{:<36} {:<15} {:<20} {:<8}", 
-                        id, 
+                println!("{:<20} {:<15} {:<30} {:<8}", "NAME", "TYPE", "REPO", "ENABLED");
+                println!("{}", "-".repeat(80));
+                for (name, s) in skills {
+                    println!("{:<20} {:<15} {:<30} {:<8}", 
+                        name, 
                         s.skill_type.as_str(), 
-                        s.name,
+                        s.forgejo_repo,
                         if s.enabled { "yes" } else { "no" }
                     );
                 }
             }
         }
         
-        SkillCommands::Create { name, skill_type, owner, entrypoint } => {
-            let st = SkillType::from_str(&skill_type)
-                .ok_or_else(|| Error::Validation(format!("Invalid skill type: {}", skill_type)))?;
+        SkillCommands::Clone { name, repo, author } => {
+            if sw.skills.contains_key(&name) {
+                eprintln!("Skill '{}' already exists", name);
+                std::process::exit(1);
+            }
+            
+            if !sw.agents.contains_key(&author) {
+                eprintln!("Agent '{}' not found", author);
+                std::process::exit(1);
+            }
+            
+            println!("Cloning skill from {}...", repo);
+            skill_mgr.clone_skill(&name, &repo).await?;
+            
+            let metadata = skill_mgr.parse_skill_md(&name)?;
+            let git_commit = skill_mgr.get_git_commit(&name).await?;
+            
+            let skill_type = metadata.skill_type
+                .and_then(|s| SkillType::from_str(&s))
+                .unwrap_or(SkillType::HostScript);
             
             let id = uuid::Uuid::new_v4().to_string();
             let now = chrono::Utc::now().to_rfc3339();
             
             let skill = Skill {
-                id: id.clone(),
-                name,
-                description: String::new(),
-                skill_type: st,
+                id,
+                name: name.clone(),
+                version: metadata.version,
+                description: metadata.description,
+                skill_type,
                 enabled: true,
-                owner_agent: owner.clone(),
-                allowed_agents: vec![owner.clone()],
-                entrypoint,
-                input_schema: None,
-                output_schema: None,
+                author_agent: author.clone(),
+                allowed_agents: vec![author],
+                forgejo_repo: repo,
+                git_commit,
+                entrypoint: metadata.entrypoint,
+                permissions: metadata.permissions,
+                input_schema: metadata.input_schema,
+                output_schema: metadata.output_schema,
                 created_at: now.clone(),
                 updated_at: now,
             };
             
-            sw.skills.insert(id.clone(), skill.clone());
+            sw.skills.insert(name.clone(), skill.clone());
             state_manager.save(&sw).await?;
-            skill_mgr.ensure_directories().await?;
             
-            println!("Skill '{}' created:", skill.name);
-            println!("  ID: {}", skill.id);
+            println!("Skill '{}' cloned successfully:", skill.name);
+            println!("  Repo: {}", skill.forgejo_repo);
+            println!("  Version: {}", skill.version);
             println!("  Type: {}", skill.skill_type.as_str());
-            println!("  Owner: {}", skill.owner_agent);
+            println!("  Author: {}", skill.author_agent);
         }
         
-        SkillCommands::Get { id } => {
-            match sw.skills.get(&id) {
+        SkillCommands::Pull { name } => {
+            let skill = sw.skills.get(&name)
+                .ok_or_else(|| Error::NotFound(format!("Skill '{}' not found", name)))?
+                .clone();
+            
+            println!("Pulling updates for skill '{}'...", name);
+            let new_commit = skill_mgr.pull_skill(&name).await?;
+            
+            let metadata = skill_mgr.parse_skill_md(&name)?;
+            
+            if let Some(s) = sw.skills.get_mut(&name) {
+                s.git_commit = new_commit.clone();
+                s.version = metadata.version;
+                s.description = metadata.description;
+                s.entrypoint = metadata.entrypoint;
+                s.permissions = metadata.permissions;
+                s.input_schema = metadata.input_schema;
+                s.output_schema = metadata.output_schema;
+                s.updated_at = chrono::Utc::now().to_rfc3339();
+            }
+            state_manager.save(&sw).await?;
+            
+            println!("Skill '{}' updated to commit {}", name, &new_commit[..8]);
+        }
+        
+        SkillCommands::Get { name } => {
+            match sw.skills.get(&name) {
                 Some(skill) => {
                     println!("Skill: {} ({})", skill.name, skill.id);
+                    println!("  Version: {}", skill.version);
                     println!("  Type: {}", skill.skill_type.as_str());
                     println!("  Description: {}", skill.description);
-                    println!("  Owner: {}", skill.owner_agent);
+                    println!("  Author: {}", skill.author_agent);
+                    println!("  Repo: {}", skill.forgejo_repo);
+                    println!("  Commit: {}", &skill.git_commit[..8]);
                     println!("  Enabled: {}", skill.enabled);
                     println!("  Entrypoint: {}", skill.entrypoint);
                     println!("  Allowed agents: {:?}", skill.allowed_agents);
                     
-                    let secrets = skill_mgr.list_secrets(&id).await?;
+                    let secrets = skill_mgr.list_secrets(&name).await?;
                     if !secrets.is_empty() {
                         println!("  Secrets: {:?}", secrets);
                     }
-                    
-                    let files = skill_mgr.list_skill_files(&id).await?;
-                    if !files.is_empty() {
-                        println!("  Files: {:?}", files);
-                    }
                 }
                 None => {
-                    eprintln!("Skill '{}' not found", id);
+                    eprintln!("Skill '{}' not found", name);
                     std::process::exit(1);
                 }
             }
         }
         
-        SkillCommands::Delete { id } => {
-            if sw.skills.remove(&id).is_none() {
-                eprintln!("Skill '{}' not found", id);
+        SkillCommands::Delete { name } => {
+            if sw.skills.remove(&name).is_none() {
+                eprintln!("Skill '{}' not found", name);
                 std::process::exit(1);
             }
             state_manager.save(&sw).await?;
-            skill_mgr.delete_skill_files(&id).await?;
-            skill_mgr.delete_all_secrets(&id).await?;
-            println!("Skill '{}' deleted", id);
+            skill_mgr.delete_skill(&name).await?;
+            println!("Skill '{}' deleted", name);
         }
         
-        SkillCommands::Authorize { skill_id, agent_name } => {
-            if let Some(skill) = sw.skills.get_mut(&skill_id) {
+        SkillCommands::Authorize { name, agent_name } => {
+            if let Some(skill) = sw.skills.get_mut(&name) {
                 if !skill.allowed_agents.contains(&agent_name) {
                     skill.allowed_agents.push(agent_name.clone());
                     skill.updated_at = chrono::Utc::now().to_rfc3339();
@@ -991,72 +1034,74 @@ async fn handle_skill_command(command: SkillCommands, data_dir: std::path::PathB
                     println!("Agent '{}' already authorized for skill '{}'", agent_name, skill_name);
                 }
             } else {
-                eprintln!("Skill '{}' not found", skill_id);
+                eprintln!("Skill '{}' not found", name);
                 std::process::exit(1);
             }
         }
         
-        SkillCommands::Revoke { skill_id, agent_name } => {
-            if let Some(skill) = sw.skills.get_mut(&skill_id) {
+        SkillCommands::Revoke { name, agent_name } => {
+            if let Some(skill) = sw.skills.get_mut(&name) {
                 skill.allowed_agents.retain(|a| a != &agent_name);
                 skill.updated_at = chrono::Utc::now().to_rfc3339();
                 let skill_name = skill.name.clone();
                 state_manager.save(&sw).await?;
                 println!("Agent '{}' revoked from skill '{}'", agent_name, skill_name);
             } else {
-                eprintln!("Skill '{}' not found", skill_id);
+                eprintln!("Skill '{}' not found", name);
                 std::process::exit(1);
             }
         }
         
-        SkillCommands::SetSecret { skill_id, key, value } => {
-            if !sw.skills.contains_key(&skill_id) {
-                eprintln!("Skill '{}' not found", skill_id);
+        SkillCommands::SetSecret { name, key, value } => {
+            if !sw.skills.contains_key(&name) {
+                eprintln!("Skill '{}' not found", name);
                 std::process::exit(1);
             }
-            skill_mgr.set_secret(&skill_id, &key, &value).await?;
-            println!("Secret '{}' set for skill '{}'", key, skill_id);
+            skill_mgr.set_secret(&name, &key, &value).await?;
+            println!("Secret '{}' set for skill '{}'", key, name);
         }
         
-        SkillCommands::ListSecrets { skill_id } => {
-            if !sw.skills.contains_key(&skill_id) {
-                eprintln!("Skill '{}' not found", skill_id);
+        SkillCommands::ListSecrets { name } => {
+            if !sw.skills.contains_key(&name) {
+                eprintln!("Skill '{}' not found", name);
                 std::process::exit(1);
             }
-            let secrets = skill_mgr.list_secrets(&skill_id).await?;
+            let secrets = skill_mgr.list_secrets(&name).await?;
             if secrets.is_empty() {
-                println!("No secrets found for skill '{}'", skill_id);
+                println!("No secrets found for skill '{}'", name);
             } else {
-                println!("Secrets for skill '{}':", skill_id);
+                println!("Secrets for skill '{}':", name);
                 for key in secrets {
                     println!("  - {}", key);
                 }
             }
         }
         
-        SkillCommands::UploadFile { skill_id, filename, content } => {
-            if !sw.skills.contains_key(&skill_id) {
-                eprintln!("Skill '{}' not found", skill_id);
-                std::process::exit(1);
-            }
-            skill_mgr.write_skill_file(&skill_id, &filename, &content).await?;
-            println!("File '{}' uploaded to skill '{}'", filename, skill_id);
-        }
-        
-        SkillCommands::Invoke { skill_id, caller, input } => {
-            let skill = sw.skills.get(&skill_id)
-                .ok_or_else(|| Error::NotFound(format!("Skill '{}' not found", skill_id)))?
+        SkillCommands::Invoke { name, caller, input } => {
+            let skill = sw.skills.get(&name)
+                .ok_or_else(|| Error::NotFound(format!("Skill '{}' not found", name)))?
                 .clone();
             
             if !skill_mgr.check_authorization(&skill, &caller) {
-                eprintln!("Agent '{}' is not authorized to invoke skill '{}'", caller, skill_id);
+                eprintln!("Agent '{}' is not authorized to invoke skill '{}'", caller, name);
                 std::process::exit(1);
             }
             
             let input_json: serde_json::Value = serde_json::from_str(&input)
                 .map_err(|e| Error::Validation(format!("Invalid JSON input: {}", e)))?;
             
-            let response = skill_mgr.invoke_host_script(&skill, &input_json).await?;
+            let response = match skill.skill_type {
+                SkillType::HostScript => {
+                    skill_mgr.invoke_host_script(&skill, &input_json).await?
+                }
+                SkillType::AgentScript => {
+                    InvokeSkillResponse {
+                        success: false,
+                        output: None,
+                        error: Some("AgentScript execution requires agent container support".to_string()),
+                    }
+                }
+            };
             
             if response.success {
                 println!("Skill '{}' executed successfully:", skill.name);
