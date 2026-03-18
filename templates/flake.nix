@@ -3,9 +3,9 @@
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.11";
-    zerg-swarm.url = "git+ssh://git@github.com/openzerg/zerg-swarm";
-    openzerg.url = "git+ssh://git@github.com/openzerg/openzerg";
-    zs-webui.url = "git+ssh://git@github.com/openzerg/zs-webui";
+    zerg-swarm.url = "github:openzerg/zerg-swarm";
+    openzerg.url = "github:openzerg/openzerg";
+    zs-webui.url = "github:openzerg/zs-webui";
   };
 
   outputs =
