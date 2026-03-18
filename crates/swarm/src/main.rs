@@ -10,7 +10,7 @@ mod proxy;
 mod protocol;
 mod models;
 mod error;
-mod skill_manager;
+mod tool_manager;
 
 use clap::{Parser, Subcommand};
 use std::net::SocketAddr;
@@ -23,14 +23,14 @@ use tokio::sync::oneshot;
 pub use error::{Error, Result};
 pub use models::*;
 
-pub type PendingSkillResults = RwLock<HashMap<String, oneshot::Sender<InvokeSkillResponse>>>;
+pub type PendingToolResults = RwLock<HashMap<String, oneshot::Sender<InvokeToolResponse>>>;
 
 pub struct AppState {
     pub state_manager: state::StateManager,
     pub agent_manager: agent_manager::AgentManager,
-    pub skill_manager: skill_manager::SkillManager,
+    pub tool_manager: tool_manager::ToolManager,
     pub vm_connections: RwLock<HashMap<String, VmConnection>>,
-    pub pending_skill_results: PendingSkillResults,
+    pub pending_tool_results: PendingToolResults,
     pub event_tx: broadcast::Sender<AgentEvent>,
     pub data_dir: std::path::PathBuf,
     pub apply_tx: tokio::sync::mpsc::UnboundedSender<()>,
@@ -118,6 +118,12 @@ enum Commands {
     Skill {
         #[command(subcommand)]
         command: SkillCommands,
+    },
+    
+    #[command(about = "Tool library management")]
+    Tool {
+        #[command(subcommand)]
+        command: ToolCommands,
     },
 }
 
@@ -261,9 +267,9 @@ enum SkillCommands {
     
     #[command(about = "Clone a skill from Forgejo")]
     Clone {
-        name: String,
+        slug: String,
         #[arg(short, long)]
-        #[arg(help = "Forgejo repository path (e.g., skills/brave-search)")]
+        #[arg(help = "Forgejo repository path (e.g., skills/excel-xlsx)")]
         repo: String,
         #[arg(short, long)]
         #[arg(help = "Author agent name")]
@@ -271,39 +277,71 @@ enum SkillCommands {
     },
     
     #[command(about = "Pull latest changes for a skill")]
-    Pull { name: String },
+    Pull { slug: String },
     
     #[command(about = "Get skill details")]
-    Get { name: String },
+    Get { slug: String },
     
     #[command(about = "Delete a skill")]
-    Delete { name: String },
+    Delete { slug: String },
+}
+
+#[derive(Subcommand)]
+enum ToolCommands {
+    #[command(about = "List all tools")]
+    List,
     
-    #[command(about = "Authorize an agent to use a skill")]
+    #[command(about = "Clone a tool from Forgejo")]
+    Clone {
+        slug: String,
+        #[arg(short, long)]
+        #[arg(help = "Forgejo repository path (e.g., tools/brave-search)")]
+        repo: String,
+        #[arg(short, long)]
+        #[arg(help = "Author agent name")]
+        author: String,
+    },
+    
+    #[command(about = "Pull latest changes for a tool")]
+    Pull { slug: String },
+    
+    #[command(about = "Get tool details")]
+    Get { slug: String },
+    
+    #[command(about = "Delete a tool")]
+    Delete { slug: String },
+    
+    #[command(about = "Authorize an agent to use a tool")]
     Authorize {
-        name: String,
+        slug: String,
         agent_name: String,
     },
     
-    #[command(about = "Revoke an agent's access to a skill")]
+    #[command(about = "Revoke an agent's access to a tool")]
     Revoke {
-        name: String,
+        slug: String,
         agent_name: String,
     },
     
-    #[command(about = "Set a secret for a skill")]
-    SetSecret {
-        name: String,
+    #[command(about = "Set an environment variable for a tool")]
+    SetEnv {
+        slug: String,
         key: String,
         value: String,
     },
     
-    #[command(about = "List secrets for a skill")]
-    ListSecrets { name: String },
+    #[command(about = "List environment variables for a tool")]
+    ListEnv { slug: String },
     
-    #[command(about = "Invoke a skill")]
+    #[command(about = "Delete an environment variable for a tool")]
+    DeleteEnv {
+        slug: String,
+        key: String,
+    },
+    
+    #[command(about = "Invoke a tool")]
     Invoke {
-        name: String,
+        slug: String,
         #[arg(short, long)]
         #[arg(help = "Caller agent name")]
         caller: String,
@@ -347,16 +385,16 @@ async fn init_state(data_dir: std::path::PathBuf) -> Result<Arc<AppState>> {
     let forgejo_url = sw.defaults.forgejo_url.clone();
     let forgejo_token = sw.defaults.forgejo_token.clone();
     
-    let skill_manager = skill_manager::SkillManager::new(data_dir.clone(), forgejo_url, forgejo_token);
+    let tool_manager = tool_manager::ToolManager::new(data_dir.clone(), forgejo_url, forgejo_token);
     let (event_tx, _) = broadcast::channel::<AgentEvent>(256);
     let (apply_tx, apply_rx) = tokio::sync::mpsc::unbounded_channel::<()>();
 
     let state = Arc::new(AppState {
         state_manager,
         agent_manager,
-        skill_manager,
+        tool_manager,
         vm_connections: RwLock::new(HashMap::new()),
-        pending_skill_results: RwLock::new(HashMap::new()),
+        pending_tool_results: RwLock::new(HashMap::new()),
         event_tx,
         data_dir: data_dir.clone(),
         apply_tx,
@@ -483,6 +521,7 @@ async fn main() -> Result<()> {
         Commands::Provider { command } => handle_provider_command(command, data_dir.clone()).await?,
         Commands::Key { command } => handle_key_command(command, data_dir.clone()).await?,
         Commands::Skill { command } => handle_skill_command(command, data_dir.clone()).await?,
+        Commands::Tool { command } => handle_tool_command(command, data_dir.clone()).await?,
     }
 
     Ok(())
@@ -882,7 +921,7 @@ async fn handle_key_command(command: KeyCommands, data_dir: std::path::PathBuf) 
 async fn handle_skill_command(command: SkillCommands, data_dir: std::path::PathBuf) -> Result<()> {
     let state_manager = state::StateManager::new(&data_dir);
     let mut sw = state_manager.load().await?;
-    let skill_mgr = skill_manager::SkillManager::new(
+    let tool_mgr = tool_manager::ToolManager::new(
         data_dir.clone(),
         sw.defaults.forgejo_url.clone(),
         sw.defaults.forgejo_token.clone(),
@@ -894,22 +933,17 @@ async fn handle_skill_command(command: SkillCommands, data_dir: std::path::PathB
             if skills.is_empty() {
                 println!("No skills found.");
             } else {
-                println!("{:<20} {:<15} {:<30} {:<8}", "NAME", "TYPE", "REPO", "ENABLED");
-                println!("{}", "-".repeat(80));
-                for (name, s) in skills {
-                    println!("{:<20} {:<15} {:<30} {:<8}", 
-                        name, 
-                        s.skill_type.as_str(), 
-                        s.forgejo_repo,
-                        if s.enabled { "yes" } else { "no" }
-                    );
+                println!("{:<20} {:<10} {:<30}", "SLUG", "VERSION", "REPO");
+                println!("{}", "-".repeat(70));
+                for (slug, s) in skills {
+                    println!("{:<20} {:<10} {:<30}", slug, s.version, s.forgejo_repo);
                 }
             }
         }
         
-        SkillCommands::Clone { name, repo, author } => {
-            if sw.skills.contains_key(&name) {
-                eprintln!("Skill '{}' already exists", name);
+        SkillCommands::Clone { slug, repo, author } => {
+            if sw.skills.contains_key(&slug) {
+                eprintln!("Skill '{}' already exists", slug);
                 std::process::exit(1);
             }
             
@@ -919,197 +953,310 @@ async fn handle_skill_command(command: SkillCommands, data_dir: std::path::PathB
             }
             
             println!("Cloning skill from {}...", repo);
-            skill_mgr.clone_skill(&name, &repo).await?;
+            tool_mgr.clone_skill(&slug, &repo).await?;
             
-            let metadata = skill_mgr.parse_skill_md(&name)?;
-            let git_commit = skill_mgr.get_git_commit(&name).await?;
+            let metadata = tool_mgr.parse_skill_md(&slug)?;
+            let git_commit = tool_mgr.get_skill_git_commit(&slug).await?;
             
-            let skill_type = metadata.skill_type
-                .and_then(|s| SkillType::from_str(&s))
-                .unwrap_or(SkillType::HostScript);
-            
-            let id = uuid::Uuid::new_v4().to_string();
             let now = chrono::Utc::now().to_rfc3339();
             
             let skill = Skill {
-                id,
-                name: name.clone(),
+                slug: slug.clone(),
+                name: metadata.name,
                 version: metadata.version,
                 description: metadata.description,
-                skill_type,
-                enabled: true,
-                author_agent: author.clone(),
-                allowed_agents: vec![author],
                 forgejo_repo: repo,
                 git_commit,
-                entrypoint: metadata.entrypoint,
-                permissions: metadata.permissions,
-                input_schema: metadata.input_schema,
-                output_schema: metadata.output_schema,
+                author_agent: author,
                 created_at: now.clone(),
                 updated_at: now,
             };
             
-            sw.skills.insert(name.clone(), skill.clone());
+            sw.skills.insert(slug.clone(), skill.clone());
             state_manager.save(&sw).await?;
             
-            println!("Skill '{}' cloned successfully:", skill.name);
-            println!("  Repo: {}", skill.forgejo_repo);
+            println!("Skill '{}' cloned successfully:", skill.slug);
+            println!("  Name: {}", skill.name);
             println!("  Version: {}", skill.version);
-            println!("  Type: {}", skill.skill_type.as_str());
-            println!("  Author: {}", skill.author_agent);
+            println!("  Repo: {}", skill.forgejo_repo);
         }
         
-        SkillCommands::Pull { name } => {
-            let skill = sw.skills.get(&name)
-                .ok_or_else(|| Error::NotFound(format!("Skill '{}' not found", name)))?
-                .clone();
+        SkillCommands::Pull { slug } => {
+            if !sw.skills.contains_key(&slug) {
+                eprintln!("Skill '{}' not found", slug);
+                std::process::exit(1);
+            }
             
-            println!("Pulling updates for skill '{}'...", name);
-            let new_commit = skill_mgr.pull_skill(&name).await?;
+            println!("Pulling updates for skill '{}'...", slug);
+            let new_commit = tool_mgr.pull_skill(&slug).await?;
             
-            let metadata = skill_mgr.parse_skill_md(&name)?;
+            let metadata = tool_mgr.parse_skill_md(&slug)?;
             
-            if let Some(s) = sw.skills.get_mut(&name) {
+            if let Some(s) = sw.skills.get_mut(&slug) {
                 s.git_commit = new_commit.clone();
                 s.version = metadata.version;
                 s.description = metadata.description;
-                s.entrypoint = metadata.entrypoint;
-                s.permissions = metadata.permissions;
-                s.input_schema = metadata.input_schema;
-                s.output_schema = metadata.output_schema;
                 s.updated_at = chrono::Utc::now().to_rfc3339();
             }
             state_manager.save(&sw).await?;
             
-            println!("Skill '{}' updated to commit {}", name, &new_commit[..8]);
+            println!("Skill '{}' updated to commit {}", slug, &new_commit[..8]);
         }
         
-        SkillCommands::Get { name } => {
-            match sw.skills.get(&name) {
+        SkillCommands::Get { slug } => {
+            match sw.skills.get(&slug) {
                 Some(skill) => {
-                    println!("Skill: {} ({})", skill.name, skill.id);
+                    println!("Skill: {}", skill.slug);
+                    println!("  Name: {}", skill.name);
                     println!("  Version: {}", skill.version);
-                    println!("  Type: {}", skill.skill_type.as_str());
                     println!("  Description: {}", skill.description);
                     println!("  Author: {}", skill.author_agent);
                     println!("  Repo: {}", skill.forgejo_repo);
                     println!("  Commit: {}", &skill.git_commit[..8]);
-                    println!("  Enabled: {}", skill.enabled);
-                    println!("  Entrypoint: {}", skill.entrypoint);
-                    println!("  Allowed agents: {:?}", skill.allowed_agents);
-                    
-                    let secrets = skill_mgr.list_secrets(&name).await?;
-                    if !secrets.is_empty() {
-                        println!("  Secrets: {:?}", secrets);
-                    }
                 }
                 None => {
-                    eprintln!("Skill '{}' not found", name);
+                    eprintln!("Skill '{}' not found", slug);
                     std::process::exit(1);
                 }
             }
         }
         
-        SkillCommands::Delete { name } => {
-            if sw.skills.remove(&name).is_none() {
-                eprintln!("Skill '{}' not found", name);
+        SkillCommands::Delete { slug } => {
+            if sw.skills.remove(&slug).is_none() {
+                eprintln!("Skill '{}' not found", slug);
                 std::process::exit(1);
             }
             state_manager.save(&sw).await?;
-            skill_mgr.delete_skill(&name).await?;
-            println!("Skill '{}' deleted", name);
+            tool_mgr.delete_skill(&slug).await?;
+            println!("Skill '{}' deleted", slug);
+        }
+    }
+    
+    Ok(())
+}
+
+async fn handle_tool_command(command: ToolCommands, data_dir: std::path::PathBuf) -> Result<()> {
+    let state_manager = state::StateManager::new(&data_dir);
+    let mut sw = state_manager.load().await?;
+    let tool_mgr = tool_manager::ToolManager::new(
+        data_dir.clone(),
+        sw.defaults.forgejo_url.clone(),
+        sw.defaults.forgejo_token.clone(),
+    );
+    
+    match command {
+        ToolCommands::List => {
+            let tools = &sw.tools;
+            if tools.is_empty() {
+                println!("No tools found.");
+            } else {
+                println!("{:<20} {:<10} {:<30} {:<8}", "SLUG", "VERSION", "REPO", "ENABLED");
+                println!("{}", "-".repeat(80));
+                for (slug, t) in tools {
+                    println!("{:<20} {:<10} {:<30} {:<8}", 
+                        slug, 
+                        t.version, 
+                        t.forgejo_repo,
+                        if t.enabled { "yes" } else { "no" }
+                    );
+                }
+            }
         }
         
-        SkillCommands::Authorize { name, agent_name } => {
-            if let Some(skill) = sw.skills.get_mut(&name) {
-                if !skill.allowed_agents.contains(&agent_name) {
-                    skill.allowed_agents.push(agent_name.clone());
-                    skill.updated_at = chrono::Utc::now().to_rfc3339();
-                    let skill_name = skill.name.clone();
+        ToolCommands::Clone { slug, repo, author } => {
+            if sw.tools.contains_key(&slug) {
+                eprintln!("Tool '{}' already exists", slug);
+                std::process::exit(1);
+            }
+            
+            if !sw.agents.contains_key(&author) {
+                eprintln!("Agent '{}' not found", author);
+                std::process::exit(1);
+            }
+            
+            println!("Cloning tool from {}...", repo);
+            tool_mgr.clone_tool(&slug, &repo).await?;
+            
+            let metadata = tool_mgr.parse_tool_md(&slug)?;
+            let git_commit = tool_mgr.get_git_commit(&slug).await?;
+            
+            let now = chrono::Utc::now().to_rfc3339();
+            
+            let tool = Tool {
+                slug: slug.clone(),
+                name: metadata.name,
+                version: metadata.version,
+                description: metadata.description,
+                forgejo_repo: repo,
+                git_commit,
+                entrypoint: metadata.entrypoint,
+                input_schema: metadata.input_schema,
+                output_schema: metadata.output_schema,
+                author_agent: author.clone(),
+                allowed_agents: vec![author],
+                enabled: true,
+                created_at: now.clone(),
+                updated_at: now,
+            };
+            
+            sw.tools.insert(slug.clone(), tool.clone());
+            state_manager.save(&sw).await?;
+            
+            println!("Tool '{}' cloned successfully:", tool.slug);
+            println!("  Name: {}", tool.name);
+            println!("  Version: {}", tool.version);
+            println!("  Repo: {}", tool.forgejo_repo);
+            println!("  Entrypoint: {}", tool.entrypoint);
+        }
+        
+        ToolCommands::Pull { slug } => {
+            if !sw.tools.contains_key(&slug) {
+                eprintln!("Tool '{}' not found", slug);
+                std::process::exit(1);
+            }
+            
+            println!("Pulling updates for tool '{}'...", slug);
+            let new_commit = tool_mgr.pull_tool(&slug).await?;
+            
+            let metadata = tool_mgr.parse_tool_md(&slug)?;
+            
+            if let Some(t) = sw.tools.get_mut(&slug) {
+                t.git_commit = new_commit.clone();
+                t.version = metadata.version;
+                t.description = metadata.description;
+                t.entrypoint = metadata.entrypoint;
+                t.input_schema = metadata.input_schema;
+                t.output_schema = metadata.output_schema;
+                t.updated_at = chrono::Utc::now().to_rfc3339();
+            }
+            state_manager.save(&sw).await?;
+            
+            println!("Tool '{}' updated to commit {}", slug, &new_commit[..8]);
+        }
+        
+        ToolCommands::Get { slug } => {
+            match sw.tools.get(&slug) {
+                Some(tool) => {
+                    println!("Tool: {}", tool.slug);
+                    println!("  Name: {}", tool.name);
+                    println!("  Version: {}", tool.version);
+                    println!("  Description: {}", tool.description);
+                    println!("  Author: {}", tool.author_agent);
+                    println!("  Repo: {}", tool.forgejo_repo);
+                    println!("  Commit: {}", &tool.git_commit[..8]);
+                    println!("  Entrypoint: {}", tool.entrypoint);
+                    println!("  Enabled: {}", tool.enabled);
+                    println!("  Allowed agents: {:?}", tool.allowed_agents);
+                    
+                    let env_vars = tool_mgr.list_env(&slug).await?;
+                    if !env_vars.is_empty() {
+                        println!("  Env vars: {:?}", env_vars);
+                    }
+                }
+                None => {
+                    eprintln!("Tool '{}' not found", slug);
+                    std::process::exit(1);
+                }
+            }
+        }
+        
+        ToolCommands::Delete { slug } => {
+            if sw.tools.remove(&slug).is_none() {
+                eprintln!("Tool '{}' not found", slug);
+                std::process::exit(1);
+            }
+            state_manager.save(&sw).await?;
+            tool_mgr.delete_tool(&slug).await?;
+            println!("Tool '{}' deleted", slug);
+        }
+        
+        ToolCommands::Authorize { slug, agent_name } => {
+            if let Some(tool) = sw.tools.get_mut(&slug) {
+                if !tool.allowed_agents.contains(&agent_name) {
+                    tool.allowed_agents.push(agent_name.clone());
+                    tool.updated_at = chrono::Utc::now().to_rfc3339();
+                    let tool_slug = tool.slug.clone();
                     state_manager.save(&sw).await?;
-                    println!("Agent '{}' authorized for skill '{}'", agent_name, skill_name);
+                    println!("Agent '{}' authorized for tool '{}'", agent_name, tool_slug);
                 } else {
-                    let skill_name = skill.name.clone();
-                    println!("Agent '{}' already authorized for skill '{}'", agent_name, skill_name);
+                    let tool_slug = tool.slug.clone();
+                    println!("Agent '{}' already authorized for tool '{}'", agent_name, tool_slug);
                 }
             } else {
-                eprintln!("Skill '{}' not found", name);
+                eprintln!("Tool '{}' not found", slug);
                 std::process::exit(1);
             }
         }
         
-        SkillCommands::Revoke { name, agent_name } => {
-            if let Some(skill) = sw.skills.get_mut(&name) {
-                skill.allowed_agents.retain(|a| a != &agent_name);
-                skill.updated_at = chrono::Utc::now().to_rfc3339();
-                let skill_name = skill.name.clone();
+        ToolCommands::Revoke { slug, agent_name } => {
+            if let Some(tool) = sw.tools.get_mut(&slug) {
+                tool.allowed_agents.retain(|a| a != &agent_name);
+                tool.updated_at = chrono::Utc::now().to_rfc3339();
+                let tool_slug = tool.slug.clone();
                 state_manager.save(&sw).await?;
-                println!("Agent '{}' revoked from skill '{}'", agent_name, skill_name);
+                println!("Agent '{}' revoked from tool '{}'", agent_name, tool_slug);
             } else {
-                eprintln!("Skill '{}' not found", name);
+                eprintln!("Tool '{}' not found", slug);
                 std::process::exit(1);
             }
         }
         
-        SkillCommands::SetSecret { name, key, value } => {
-            if !sw.skills.contains_key(&name) {
-                eprintln!("Skill '{}' not found", name);
+        ToolCommands::SetEnv { slug, key, value } => {
+            if !sw.tools.contains_key(&slug) {
+                eprintln!("Tool '{}' not found", slug);
                 std::process::exit(1);
             }
-            skill_mgr.set_secret(&name, &key, &value).await?;
-            println!("Secret '{}' set for skill '{}'", key, name);
+            tool_mgr.set_env(&slug, &key, &value).await?;
+            println!("Env '{}' set for tool '{}'", key, slug);
         }
         
-        SkillCommands::ListSecrets { name } => {
-            if !sw.skills.contains_key(&name) {
-                eprintln!("Skill '{}' not found", name);
+        ToolCommands::ListEnv { slug } => {
+            if !sw.tools.contains_key(&slug) {
+                eprintln!("Tool '{}' not found", slug);
                 std::process::exit(1);
             }
-            let secrets = skill_mgr.list_secrets(&name).await?;
-            if secrets.is_empty() {
-                println!("No secrets found for skill '{}'", name);
+            let env_vars = tool_mgr.list_env(&slug).await?;
+            if env_vars.is_empty() {
+                println!("No env vars found for tool '{}'", slug);
             } else {
-                println!("Secrets for skill '{}':", name);
-                for key in secrets {
+                println!("Env vars for tool '{}':", slug);
+                for key in env_vars {
                     println!("  - {}", key);
                 }
             }
         }
         
-        SkillCommands::Invoke { name, caller, input } => {
-            let skill = sw.skills.get(&name)
-                .ok_or_else(|| Error::NotFound(format!("Skill '{}' not found", name)))?
+        ToolCommands::DeleteEnv { slug, key } => {
+            if !sw.tools.contains_key(&slug) {
+                eprintln!("Tool '{}' not found", slug);
+                std::process::exit(1);
+            }
+            tool_mgr.delete_env(&slug, &key).await?;
+            println!("Env '{}' deleted for tool '{}'", key, slug);
+        }
+        
+        ToolCommands::Invoke { slug, caller, input } => {
+            let tool = sw.tools.get(&slug)
+                .ok_or_else(|| Error::NotFound(format!("Tool '{}' not found", slug)))?
                 .clone();
             
-            if !skill_mgr.check_authorization(&skill, &caller) {
-                eprintln!("Agent '{}' is not authorized to invoke skill '{}'", caller, name);
+            if !tool_mgr.check_authorization(&tool, &caller) {
+                eprintln!("Agent '{}' is not authorized to invoke tool '{}'", caller, slug);
                 std::process::exit(1);
             }
             
             let input_json: serde_json::Value = serde_json::from_str(&input)
                 .map_err(|e| Error::Validation(format!("Invalid JSON input: {}", e)))?;
             
-            let response = match skill.skill_type {
-                SkillType::HostScript => {
-                    skill_mgr.invoke_host_script(&skill, &input_json).await?
-                }
-                SkillType::AgentScript => {
-                    InvokeSkillResponse {
-                        success: false,
-                        output: None,
-                        error: Some("AgentScript execution requires agent container support".to_string()),
-                    }
-                }
-            };
+            let response = tool_mgr.invoke_host_tool(&tool, &input_json).await?;
             
             if response.success {
-                println!("Skill '{}' executed successfully:", skill.name);
+                println!("Tool '{}' executed successfully:", tool.slug);
                 if let Some(output) = response.output {
                     println!("{}", serde_json::to_string_pretty(&output)?);
                 }
             } else {
-                eprintln!("Skill '{}' execution failed:", skill.name);
+                eprintln!("Tool '{}' execution failed:", tool.slug);
                 if let Some(error) = response.error {
                     eprintln!("{}", error);
                 }

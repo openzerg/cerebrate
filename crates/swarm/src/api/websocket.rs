@@ -178,11 +178,11 @@ async fn handle_vm_heartbeat(state: &AppState, heartbeat: &VmHeartbeat) {
 }
 
 async fn handle_vm_skill_result(state: &AppState, result: &VmSkillResult) {
-    use crate::models::InvokeSkillResponse;
+    use crate::models::InvokeToolResponse;
     
-    let mut pending = state.pending_skill_results.write().await;
+    let mut pending = state.pending_tool_results.write().await;
     if let Some(tx) = pending.remove(&result.skill_id) {
-        let response = InvokeSkillResponse {
+        let response = InvokeToolResponse {
             success: result.success,
             output: result.output.clone(),
             error: result.error.clone(),

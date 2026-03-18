@@ -16,6 +16,8 @@ pub struct State {
     pub forgejo_users: HashMap<String, ForgejoUser>,
     #[serde(default)]
     pub skills: HashMap<String, Skill>,
+    #[serde(default)]
+    pub tools: HashMap<String, Tool>,
 }
 
 impl State {
@@ -28,6 +30,7 @@ impl State {
             api_keys: HashMap::new(),
             forgejo_users: HashMap::new(),
             skills: HashMap::new(),
+            tools: HashMap::new(),
         }
     }
 }
@@ -157,116 +160,95 @@ pub struct CheckpointMeta {
     pub btrfs_snapshot: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "snake_case")]
-pub enum SkillType {
-    HostScript,
-    AgentScript,
-}
-
-impl SkillType {
-    pub fn from_str(s: &str) -> Option<Self> {
-        match s.to_lowercase().as_str() {
-            "hostscript" | "host_script" => Some(Self::HostScript),
-            "agentscript" | "agent_script" => Some(Self::AgentScript),
-            _ => None,
-        }
-    }
-
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            Self::HostScript => "host_script",
-            Self::AgentScript => "agent_script",
-        }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[serde(rename_all = "snake_case")]
-pub enum NetworkMode {
-    #[default]
-    Open,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct NetworkPermissions {
-    #[serde(default)]
-    pub mode: NetworkMode,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[serde(rename_all = "snake_case")]
-pub enum FilesystemPermissions {
-    #[default]
-    None,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct SkillPermissions {
-    #[serde(default)]
-    pub network: NetworkPermissions,
-    #[serde(default)]
-    pub filesystem: FilesystemPermissions,
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Skill {
-    pub id: String,
+pub struct Tool {
+    pub slug: String,
     pub name: String,
     pub version: String,
     pub description: String,
-    pub skill_type: SkillType,
-    pub enabled: bool,
-    pub author_agent: String,
-    #[serde(default)]
-    pub allowed_agents: Vec<String>,
-
     pub forgejo_repo: String,
     pub git_commit: String,
-
     pub entrypoint: String,
-    #[serde(default)]
-    pub permissions: SkillPermissions,
     #[serde(default)]
     pub input_schema: Option<serde_json::Value>,
     #[serde(default)]
     pub output_schema: Option<serde_json::Value>,
+    pub author_agent: String,
+    #[serde(default)]
+    pub allowed_agents: Vec<String>,
+    pub enabled: bool,
     pub created_at: String,
     pub updated_at: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CreateSkillRequest {
-    pub name: String,
+pub struct CreateToolRequest {
+    pub slug: String,
     pub author_agent: String,
     pub forgejo_repo: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct InvokeSkillRequest {
+pub struct InvokeToolRequest {
     pub input: serde_json::Value,
     pub caller_agent: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct InvokeSkillResponse {
+pub struct InvokeToolResponse {
     pub success: bool,
     pub output: Option<serde_json::Value>,
     pub error: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SkillMetadata {
+pub struct AuthorizeRequest {
+    pub agent_name: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SetEnvRequest {
+    pub key: String,
+    pub value: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ToolMetadata {
     pub name: String,
+    pub slug: String,
     pub version: String,
     pub description: String,
     pub entrypoint: String,
     #[serde(default)]
-    pub skill_type: Option<String>,
-    #[serde(default)]
-    pub permissions: SkillPermissions,
-    #[serde(default)]
     pub input_schema: Option<serde_json::Value>,
     #[serde(default)]
     pub output_schema: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Skill {
+    pub slug: String,
+    pub name: String,
+    pub version: String,
+    pub description: String,
+    pub forgejo_repo: String,
+    pub git_commit: String,
+    pub author_agent: String,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateSkillRequest {
+    pub slug: String,
+    pub author_agent: String,
+    pub forgejo_repo: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SkillMetadata {
+    pub name: String,
+    pub slug: String,
+    pub version: String,
+    pub description: String,
 }

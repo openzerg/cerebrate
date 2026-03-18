@@ -4,6 +4,7 @@ mod agents;
 mod providers;
 mod checkpoints;
 mod skills;
+mod tools;
 
 use std::sync::Arc;
 use std::net::SocketAddr;
@@ -61,6 +62,7 @@ pub async fn start_server(
         .route("/llm/keys", get(providers::list_api_keys).post(providers::create_api_key))
         .route("/llm/keys/{id}", delete(providers::delete_api_key))
         .merge(skills::router())
+        .merge(tools::router())
         .route_layer(middleware::from_fn_with_state(auth_state.clone(), auth_middleware));
 
     let app = Router::new()
