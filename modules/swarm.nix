@@ -51,7 +51,7 @@ in
         RUST_LOG = "info";
       };
 
-      path = with pkgs; [ btrfs-progs git nixos-rebuild ];
+      path = with pkgs; [ btrfs-progs git nixos-rebuild nix ];
 
       serviceConfig = {
         Type = "simple";
