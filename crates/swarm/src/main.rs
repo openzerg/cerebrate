@@ -18,15 +18,19 @@ use std::sync::Arc;
 use tokio::sync::{RwLock, broadcast};
 use crate::protocol::AgentEvent;
 use std::collections::HashMap;
+use tokio::sync::oneshot;
 
 pub use error::{Error, Result};
 pub use models::*;
+
+pub type PendingSkillResults = RwLock<HashMap<String, oneshot::Sender<InvokeSkillResponse>>>;
 
 pub struct AppState {
     pub state_manager: state::StateManager,
     pub agent_manager: agent_manager::AgentManager,
     pub skill_manager: skill_manager::SkillManager,
     pub vm_connections: RwLock<HashMap<String, VmConnection>>,
+    pub pending_skill_results: PendingSkillResults,
     pub event_tx: broadcast::Sender<AgentEvent>,
     pub data_dir: std::path::PathBuf,
     pub apply_tx: tokio::sync::mpsc::UnboundedSender<()>,
@@ -355,6 +359,7 @@ async fn init_state(data_dir: std::path::PathBuf) -> Result<Arc<AppState>> {
         agent_manager,
         skill_manager,
         vm_connections: RwLock::new(HashMap::new()),
+        pending_skill_results: RwLock::new(HashMap::new()),
         event_tx,
         data_dir: data_dir.clone(),
         apply_tx,

@@ -2,7 +2,7 @@ use std::sync::Arc;
 use axum::extract::{State, ws::WebSocketUpgrade};
 use futures_util::{SinkExt, StreamExt};
 use crate::{AppState, VmConnection};
-use crate::protocol::{Message, VmConnect, VmHeartbeat, AgentEvent, AgentEventType};
+use crate::protocol::{Message, VmConnect, VmHeartbeat, VmSkillResult, AgentEvent, AgentEventType};
 
 pub async fn event_ws_handler(
     State(state): State<Arc<AppState>>,
@@ -98,6 +98,9 @@ async fn handle_vm_ws(socket: axum::extract::ws::WebSocket, state: Arc<AppState>
                                     data: Some(serde_json::to_value(&report.data).unwrap_or(serde_json::Value::Null)),
                                 });
                             }
+                            Message::VmSkillResult(result) => {
+                                handle_vm_skill_result(&state, &result).await;
+                            }
                             _ => {}
                         }
                     }
@@ -171,5 +174,19 @@ async fn handle_vm_heartbeat(state: &AppState, heartbeat: &VmHeartbeat) {
     if let Some(conn) = connections.get_mut(&heartbeat.agent_name) {
         conn.last_heartbeat = chrono::Utc::now();
         conn.connected = true;
+    }
+}
+
+async fn handle_vm_skill_result(state: &AppState, result: &VmSkillResult) {
+    use crate::models::InvokeSkillResponse;
+    
+    let mut pending = state.pending_skill_results.write().await;
+    if let Some(tx) = pending.remove(&result.skill_id) {
+        let response = InvokeSkillResponse {
+            success: result.success,
+            output: result.output.clone(),
+            error: result.error.clone(),
+        };
+        let _ = tx.send(response);
     }
 }

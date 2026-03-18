@@ -237,6 +237,27 @@ impl SkillManager {
         }
     }
 
+    pub async fn read_all_skill_files(&self, skill_id: &str) -> Result<Vec<(String, String)>> {
+        let dir = self.skill_dir(skill_id);
+        if !dir.exists() {
+            return Ok(Vec::new());
+        }
+        
+        let mut entries = fs::read_dir(&dir).await?;
+        let mut files = Vec::new();
+        while let Some(entry) = entries.next_entry().await? {
+            let path = entry.path();
+            if entry.file_type().await?.is_file() {
+                if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                    if let Ok(content) = fs::read_to_string(&path).await {
+                        files.push((name.to_string(), content));
+                    }
+                }
+            }
+        }
+        Ok(files)
+    }
+
     pub fn check_authorization(&self, skill: &Skill, caller_agent: &str) -> bool {
         if skill.owner_agent == caller_agent {
             return true;

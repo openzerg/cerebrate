@@ -10,11 +10,13 @@ pub enum Message {
     VmFileTree(VmFileTree),
     VmRepoList(VmRepoList),
     VmTaskResult(VmTaskResult),
+    VmSkillResult(VmSkillResult),
 
     HostExecuteTask(HostExecuteTask),
     HostConfigUpdate(HostConfigUpdate),
     HostRequestFiles(HostRequestFiles),
     HostRequestRepos(HostRequestRepos),
+    HostExecuteSkill(HostExecuteSkill),
 
     AgentEvent(AgentEvent),
 }
@@ -142,6 +144,26 @@ pub struct HostRequestFiles {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HostRequestRepos;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HostExecuteSkill {
+    pub skill_id: String,
+    pub skill_name: String,
+    pub entrypoint: String,
+    pub skill_files: Vec<(String, String)>,
+    pub input: serde_json::Value,
+    pub timeout_secs: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VmSkillResult {
+    pub agent_name: String,
+    pub skill_id: String,
+    pub success: bool,
+    pub output: Option<serde_json::Value>,
+    pub error: Option<String>,
+    pub timestamp: DateTime<Utc>,
+}
 
 impl Message {
     pub fn from_json(json: &str) -> Result<Self, serde_json::Error> {

@@ -349,11 +349,19 @@ pub async fn invoke_skill(
             }
         }
         SkillType::AgentScript => {
-            Json(InvokeSkillResponse {
-                success: false,
-                output: None,
-                error: Some("AgentScript execution not yet implemented".to_string()),
-            })
+            invoke_agent_script(state, skill, req).await
         }
     }
+}
+
+async fn invoke_agent_script(
+    state: Arc<AppState>,
+    skill: Skill,
+    req: InvokeSkillRequest,
+) -> Json<InvokeSkillResponse> {
+    Json(InvokeSkillResponse {
+        success: false,
+        output: None,
+        error: Some("AgentScript execution requires openzerg agent support. Please ensure the agent is running with skill execution enabled.".to_string()),
+    })
 }
