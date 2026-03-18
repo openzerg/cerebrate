@@ -48,6 +48,7 @@ const MAX_CHECKPOINTS_PER_AGENT: usize = 10;
 #[derive(Parser)]
 #[command(name = "zerg-swarm")]
 #[command(about = "Zerg Swarm - Agent cluster manager for NixOS")]
+#[command(version)]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
