@@ -154,8 +154,7 @@ impl SkillManager {
         let secrets_env = self.load_secrets_env(&skill.id);
         
         let mut cmd = tokio::process::Command::new("nix-shell");
-        cmd.arg("--pure")
-           .arg(&skill_dir)
+        cmd.arg(&skill_dir)
            .arg("--run")
            .arg(&format!("{} '{}' '{}'", entrypoint, skill.id, input_json.replace("'", "'\\''")));
         
