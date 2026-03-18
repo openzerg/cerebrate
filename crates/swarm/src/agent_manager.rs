@@ -170,8 +170,11 @@ impl AgentManager {
         let flake_path = self.system_dir.to_string_lossy();
         println!("Running: nixos-rebuild switch --flake {}#zerg-swarm", flake_path);
 
-        let mut child = tokio::process::Command::new("nixos-rebuild")
+        let mut child = tokio::process::Command::new("systemd-run")
             .args([
+                "--scope",
+                "--quiet",
+                "nixos-rebuild",
                 "switch",
                 "--flake",
                 &format!("{}#zerg-swarm", flake_path),
