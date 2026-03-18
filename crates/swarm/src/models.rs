@@ -203,11 +203,14 @@ pub struct Skill {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateSkillRequest {
     pub name: String,
+    #[serde(default)]
     pub description: String,
     pub skill_type: SkillType,
     pub owner_agent: String,
     pub entrypoint: String,
+    #[serde(default)]
     pub input_schema: Option<serde_json::Value>,
+    #[serde(default)]
     pub output_schema: Option<serde_json::Value>,
 }
 
