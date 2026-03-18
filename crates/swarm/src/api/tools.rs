@@ -291,12 +291,14 @@ pub async fn invoke_tool(
         }),
     };
     
-    if !state.tool_manager.check_authorization(&tool, &req.caller_agent) {
-        return Json(InvokeToolResponse {
-            success: false,
-            output: None,
-            error: Some(format!("Agent '{}' is not authorized to invoke this tool", req.caller_agent)),
-        });
+    if let Some(caller) = &req.caller_agent {
+        if !state.tool_manager.check_authorization(&tool, caller) {
+            return Json(InvokeToolResponse {
+                success: false,
+                output: None,
+                error: Some(format!("Agent '{}' is not authorized to invoke this tool", caller)),
+            });
+        }
     }
     
     if !tool.enabled {

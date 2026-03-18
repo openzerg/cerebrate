@@ -343,9 +343,6 @@ enum ToolCommands {
     Invoke {
         slug: String,
         #[arg(short, long)]
-        #[arg(help = "Caller agent name")]
-        caller: String,
-        #[arg(short, long)]
         #[arg(help = "JSON input")]
         input: String,
     },
@@ -1235,15 +1232,10 @@ async fn handle_tool_command(command: ToolCommands, data_dir: std::path::PathBuf
             println!("Env '{}' deleted for tool '{}'", key, slug);
         }
         
-        ToolCommands::Invoke { slug, caller, input } => {
+        ToolCommands::Invoke { slug, input } => {
             let tool = sw.tools.get(&slug)
                 .ok_or_else(|| Error::NotFound(format!("Tool '{}' not found", slug)))?
                 .clone();
-            
-            if !tool_mgr.check_authorization(&tool, &caller) {
-                eprintln!("Agent '{}' is not authorized to invoke tool '{}'", caller, slug);
-                std::process::exit(1);
-            }
             
             let input_json: serde_json::Value = serde_json::from_str(&input)
                 .map_err(|e| Error::Validation(format!("Invalid JSON input: {}", e)))?;

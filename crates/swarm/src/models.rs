@@ -191,7 +191,7 @@ pub struct CreateToolRequest {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InvokeToolRequest {
     pub input: serde_json::Value,
-    pub caller_agent: String,
+    pub caller_agent: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
