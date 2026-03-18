@@ -119,11 +119,9 @@ fn build_bwrap_command(
             "--run", &format!("{} '{}'", entrypoint, input_json.replace("'", "'\\''")),
         ]);
     } else {
-        let parts: Vec<&str> = entrypoint.split_whitespace().collect();
         cmd.arg("--");
-        for part in parts {
-            cmd.arg(part.replace("{}", input_json));
-        }
+        cmd.args(entrypoint.split_whitespace());
+        cmd.arg(input_json);
     }
     
     cmd
