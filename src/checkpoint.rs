@@ -133,6 +133,7 @@ impl CheckpointManager {
             host_ip: format!("{}.{}.1", defaults.container_subnet_base, agent_num),
             forgejo_username: Some(new_agent_name.to_string()),
             internal_token: uuid::Uuid::new_v4().to_string(),
+            model_id: None,
             created_at: now.clone(),
             updated_at: now,
         };

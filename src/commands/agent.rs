@@ -41,6 +41,7 @@ pub async fn handle_agent_command(command: AgentCommands, data_dir: std::path::P
                 host_ip: format!("{}.{}.1", sw.defaults.container_subnet_base, agent_num),
                 forgejo_username: forgejo_username.or(Some(name.clone())),
                 internal_token: uuid::Uuid::new_v4().to_string(),
+                model_id: None,
                 created_at: now.clone(),
                 updated_at: now,
             };

@@ -12,6 +12,7 @@ pub mod models;
 pub mod error;
 pub mod tool_manager;
 pub mod sync;
+pub mod llm_proxy;
 
 use std::collections::HashMap;
 use tokio::sync::{RwLock, broadcast, oneshot};

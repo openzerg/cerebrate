@@ -47,8 +47,8 @@ async fn main() -> swarm::Result<()> {
             commands::handle_provider_command(command, data_dir).await?;
         }
         
-        Commands::Key { command } => {
-            commands::handle_key_command(command, data_dir).await?;
+        Commands::Model { command } => {
+            commands::handle_model_command(command, data_dir).await?;
         }
         
         Commands::Skill { command } => {

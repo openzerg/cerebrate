@@ -359,6 +359,7 @@ mod tests {
             host_ip: "10.0.0.1".to_string(),
             forgejo_username: None,
             internal_token: "test-token".to_string(),
+            model_id: None,
             created_at: "2024-01-01".to_string(),
             updated_at: "2024-01-01".to_string(),
         }

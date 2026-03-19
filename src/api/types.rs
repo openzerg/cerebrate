@@ -1,4 +1,3 @@
-use crate::models::{CreateApiKeyRequest, CreateProviderRequest, ProviderType};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize)]
@@ -58,6 +57,14 @@ pub struct AgentInfo {
     pub host_ip: String,
     pub forgejo_username: Option<String>,
     pub online: bool,
+    pub model_id: Option<String>,
+    pub model_name: Option<String>,
+    pub internal_token: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct BindModelRequest {
+    pub model_id: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -79,6 +86,17 @@ pub struct ProviderInfo {
     pub name: String,
     pub provider_type: String,
     pub base_url: String,
+    pub enabled: bool,
+    pub created_at: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ModelInfo {
+    pub id: String,
+    pub name: String,
+    pub provider_id: String,
+    pub provider_name: String,
+    pub model_name: String,
     pub enabled: bool,
     pub created_at: String,
 }
@@ -189,6 +207,9 @@ mod tests {
             host_ip: "10.0.0.1".to_string(),
             forgejo_username: Some("user1".to_string()),
             online: true,
+            model_id: Some("model-1".to_string()),
+            model_name: Some("GPT-4".to_string()),
+            internal_token: "token123".to_string(),
         };
 
         let json = serde_json::to_string(&info).unwrap();
@@ -276,5 +297,29 @@ mod tests {
         let json = r#"{"name":"neworg"}"#;
         let req: CreateOrgRequest = serde_json::from_str(json).unwrap();
         assert_eq!(req.name, "neworg");
+    }
+
+    #[test]
+    fn test_model_info() {
+        let info = ModelInfo {
+            id: "model-1".to_string(),
+            name: "GPT-4".to_string(),
+            provider_id: "provider-1".to_string(),
+            provider_name: "OpenAI".to_string(),
+            model_name: "gpt-4o".to_string(),
+            enabled: true,
+            created_at: "2024-01-01".to_string(),
+        };
+
+        let json = serde_json::to_string(&info).unwrap();
+        assert!(json.contains("GPT-4"));
+        assert!(json.contains("gpt-4o"));
+    }
+
+    #[test]
+    fn test_bind_model_request() {
+        let json = r#"{"model_id":"model-1"}"#;
+        let req: BindModelRequest = serde_json::from_str(json).unwrap();
+        assert_eq!(req.model_id, "model-1");
     }
 }

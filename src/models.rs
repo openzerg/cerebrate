@@ -11,7 +11,7 @@ pub struct State {
     #[serde(default)]
     pub providers: HashMap<String, Provider>,
     #[serde(default)]
-    pub api_keys: HashMap<String, ApiKey>,
+    pub models: HashMap<String, Model>,
     #[serde(default)]
     pub forgejo_users: HashMap<String, ForgejoUser>,
     #[serde(default)]
@@ -35,7 +35,7 @@ impl State {
             defaults: Defaults::default(),
             agents: HashMap::new(),
             providers: HashMap::new(),
-            api_keys: HashMap::new(),
+            models: HashMap::new(),
             forgejo_users: HashMap::new(),
             skills: HashMap::new(),
             tools: HashMap::new(),
@@ -51,6 +51,7 @@ pub struct Agent {
     pub host_ip: String,
     pub forgejo_username: Option<String>,
     pub internal_token: String,
+    pub model_id: Option<String>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -137,13 +138,21 @@ impl ProviderType {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ApiKey {
+pub struct Model {
     pub id: String,
     pub name: String,
-    pub key_hash: String,
     pub provider_id: String,
+    pub model_name: String,
+    pub enabled: bool,
     pub created_at: String,
     pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateModelRequest {
+    pub name: String,
+    pub provider_id: String,
+    pub model_name: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -152,12 +161,6 @@ pub struct CreateProviderRequest {
     pub provider_type: ProviderType,
     pub base_url: String,
     pub api_key: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CreateApiKeyRequest {
-    pub name: String,
-    pub provider_id: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -271,7 +274,7 @@ mod tests {
         assert_eq!(state.version, "1.0");
         assert!(state.agents.is_empty());
         assert!(state.providers.is_empty());
-        assert!(state.api_keys.is_empty());
+        assert!(state.models.is_empty());
     }
 
     #[test]
@@ -288,6 +291,7 @@ mod tests {
             host_ip: "10.200.1.1".to_string(),
             forgejo_username: Some("user".to_string()),
             internal_token: "token123".to_string(),
+            model_id: None,
             created_at: "2024-01-01T00:00:00Z".to_string(),
             updated_at: "2024-01-01T00:00:00Z".to_string(),
         };
@@ -298,7 +302,7 @@ mod tests {
 
     #[test]
     fn test_agent_deserialization() {
-        let json = r#"{"enabled":true,"container_ip":"10.200.1.2","host_ip":"10.200.1.1","forgejo_username":null,"internal_token":"token","created_at":"2024-01-01T00:00:00Z","updated_at":"2024-01-01T00:00:00Z"}"#;
+        let json = r#"{"enabled":true,"container_ip":"10.200.1.2","host_ip":"10.200.1.1","forgejo_username":null,"internal_token":"token","model_id":null,"created_at":"2024-01-01T00:00:00Z","updated_at":"2024-01-01T00:00:00Z"}"#;
         let agent: Agent = serde_json::from_str(json).unwrap();
         assert!(agent.enabled);
         assert_eq!(agent.container_ip, "10.200.1.2");
@@ -379,21 +383,6 @@ mod tests {
         let json = serde_json::to_string(&provider).unwrap();
         assert!(json.contains("OpenAI"));
         assert!(json.contains("openai"));
-    }
-
-    #[test]
-    fn test_api_key_serialization() {
-        let key = ApiKey {
-            id: "k1".to_string(),
-            name: "My Key".to_string(),
-            key_hash: "hash123".to_string(),
-            provider_id: "p1".to_string(),
-            created_at: "2024-01-01T00:00:00Z".to_string(),
-            updated_at: "2024-01-01T00:00:00Z".to_string(),
-        };
-        let json = serde_json::to_string(&key).unwrap();
-        assert!(json.contains("My Key"));
-        assert!(json.contains("hash123"));
     }
 
     #[test]
@@ -602,7 +591,7 @@ mod tests {
             "version": "2.0",
             "agents": {},
             "providers": {},
-            "api_keys": {},
+            "models": {},
             "tools": {},
             "skills": {},
             "forgejo_users": {},

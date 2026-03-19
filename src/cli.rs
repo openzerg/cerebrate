@@ -87,10 +87,10 @@ pub enum Commands {
         command: ProviderCommands,
     },
 
-    #[command(about = "API Key management")]
-    Key {
+    #[command(about = "LLM Model management")]
+    Model {
         #[command(subcommand)]
-        command: KeyCommands,
+        command: ModelCommands,
     },
 
     #[command(about = "Skill library management")]
@@ -232,18 +232,21 @@ pub enum ProviderCommands {
 }
 
 #[derive(Subcommand)]
-pub enum KeyCommands {
-    #[command(about = "List API keys")]
+pub enum ModelCommands {
+    #[command(about = "List LLM models")]
     List,
 
-    #[command(about = "Create a new API key")]
+    #[command(about = "Create a new model")]
     Create {
         name: String,
         #[arg(short, long)]
         provider: String,
+        #[arg(short, long)]
+        #[arg(help = "Real model name (e.g., gpt-4o, claude-3-opus)")]
+        model_name: String,
     },
 
-    #[command(about = "Delete an API key")]
+    #[command(about = "Delete a model")]
     Delete { id: String },
 }
 

@@ -7,7 +7,7 @@ pub mod checkpoint;
 pub mod git;
 pub mod config;
 pub mod provider;
-pub mod key;
+pub mod model;
 pub mod skill;
 pub mod tool;
 
@@ -20,6 +20,6 @@ pub use checkpoint::handle_checkpoint_command;
 pub use git::handle_git_command;
 pub use config::handle_config_command;
 pub use provider::handle_provider_command;
-pub use key::handle_key_command;
+pub use model::handle_model_command;
 pub use skill::handle_skill_command;
 pub use tool::handle_tool_command;
