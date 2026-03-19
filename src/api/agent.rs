@@ -408,6 +408,16 @@ pub async fn proxy_session_interrupt(
     }
 }
 
+pub async fn proxy_session_context(
+    Path((name, id)): Path<(String, String)>,
+    State(state): State<Arc<AppState>>,
+) -> axum::response::Response {
+    match proxy_request(state, &name, &format!("/api/sessions/{}/context", id), reqwest::Method::GET, None, None).await {
+        Ok(resp) => resp,
+        Err(e) => error_response(e),
+    }
+}
+
 pub async fn proxy_processes(
     Path(name): Path<String>,
     State(state): State<Arc<AppState>>,

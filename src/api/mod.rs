@@ -62,6 +62,7 @@ pub async fn start_server(
         .route("/agents/{name}/sessions/{id}/messages", get(agent::proxy_session_messages))
         .route("/agents/{name}/sessions/{id}/chat", post(agent::proxy_session_chat))
         .route("/agents/{name}/sessions/{id}/interrupt", post(agent::proxy_session_interrupt))
+        .route("/agents/{name}/sessions/{id}/context", get(agent::proxy_session_context))
         .route("/agents/{name}/processes", get(agent::proxy_processes))
         .route("/agents/{name}/processes/{id}", get(agent::proxy_process))
         .route("/agents/{name}/processes/{id}/output", get(agent::proxy_process_output))
