@@ -63,11 +63,10 @@ impl AgentManager {
     }
 
     async fn ensure_btrfs_subvolumes(&self, agents: &std::collections::HashMap<String, Agent>) -> Result<()> {
-        let agents_dir = Path::new("/home/@agents");
+        let agents_dir = Path::new("/home/agents");
         
-        // Create @agents parent directory if it doesn't exist
         if !agents_dir.exists() {
-            tracing::info!("Creating @agents directory");
+            tracing::info!("Creating agents directory");
             tokio::fs::create_dir_all(agents_dir).await?;
         }
         
@@ -76,7 +75,6 @@ impl AgentManager {
             if !agent_path.exists() {
                 tracing::info!("Creating btrfs subvolume for agent: {}", agent_name);
                 
-                // Use btrfs from PATH (service runs as root)
                 let status = tokio::process::Command::new("btrfs")
                     .args(["subvolume", "create", agent_path.to_str().unwrap()])
                     .status()
@@ -100,7 +98,7 @@ impl AgentManager {
     }
 
     async fn cleanup_removed_agents(&self, agents: &std::collections::HashMap<String, Agent>) -> Result<()> {
-        let agents_dir = Path::new("/home/@agents");
+        let agents_dir = Path::new("/home/agents");
         
         if !agents_dir.exists() {
             return Ok(());
@@ -111,11 +109,9 @@ impl AgentManager {
         while let Some(entry) = entries.next_entry().await? {
             let name = entry.file_name().to_string_lossy().to_string();
             
-            // If this subvolume is not in the current agents list, delete it
             if !agents.contains_key(&name) {
                 tracing::info!("Removing btrfs subvolume for deleted agent: {}", name);
                 
-                // Delete btrfs subvolume
                 let status = tokio::process::Command::new("btrfs")
                     .args(["subvolume", "delete", entry.path().to_str().unwrap()])
                     .status()
@@ -259,7 +255,7 @@ impl AgentManager {
     
     bindMounts = {{
       "/workspace" = {{
-        hostPath = "/var/lib/agents/{name}";
+        hostPath = "/home/agents/{name}";
         isReadOnly = false;
       }};
     }};
@@ -323,10 +319,10 @@ impl AgentManager {
 
         for name in agents.keys() {
             let fs = format!(
-                r#"  fileSystems."/var/lib/agents/{name}" = {{
+                r#"  fileSystems."/home/agents/{name}" = {{
     device = "{device}";
     fsType = "btrfs";
-    options = [ "subvol=@agents/{name}" "compress=zstd" "noatime" ];
+    options = [ "subvol=agents/{name}" "compress=zstd" "noatime" ];
   }};
 
 "#,
@@ -477,7 +473,7 @@ mod tests {
         assert!(output.contains("agent2"));
         assert!(output.contains("/dev/nvme0n1"));
         assert!(output.contains("btrfs"));
-        assert!(output.contains("subvol=@agents/agent1"));
+        assert!(output.contains("subvol=agents/agent1"));
         assert!(output.contains("compress=zstd"));
     }
 
