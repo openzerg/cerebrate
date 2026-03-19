@@ -1,5 +1,4 @@
 pub mod api;
-pub mod auth;
 pub mod agent_manager;
 pub mod state;
 pub mod checkpoint;
@@ -13,40 +12,34 @@ pub mod error;
 pub mod tool_manager;
 pub mod sync;
 pub mod llm_proxy;
-pub mod rpc;
+pub mod grpc;
+mod app_state_impl;
 
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::sync::{RwLock, broadcast, oneshot, mpsc};
+use tokio::sync::{RwLock, broadcast, mpsc};
 use crate::protocol::AgentEvent;
-use crate::rpc::{RpcRegistry, protocol::RpcResponse};
+use crate::grpc::AgentGrpcClient;
 
 pub use error::{Error, Result};
 pub use models::*;
-
-pub type PendingToolResults = RwLock<HashMap<String, oneshot::Sender<InvokeToolResponse>>>;
-pub type PendingQueries = RwLock<HashMap<String, mpsc::Sender<serde_json::Value>>>;
-pub type PendingRpcRequests = RwLock<HashMap<String, oneshot::Sender<RpcResponse>>>;
 
 pub struct AppState {
     pub state_manager: state::StateManager,
     pub agent_manager: agent_manager::AgentManager,
     pub tool_manager: tool_manager::ToolManager,
     pub vm_connections: RwLock<HashMap<String, VmConnection>>,
-    pub pending_tool_results: PendingToolResults,
-    pub pending_queries: PendingQueries,
-    pub pending_rpc_requests: PendingRpcRequests,
     pub event_tx: broadcast::Sender<AgentEvent>,
     pub data_dir: std::path::PathBuf,
     pub apply_tx: mpsc::UnboundedSender<()>,
-    pub rpc_registry: Arc<RpcRegistry>,
+    pub grpc_client: Arc<AgentGrpcClient>,
 }
 
 pub struct VmConnection {
     pub agent_name: String,
     pub connected: bool,
     pub last_heartbeat: chrono::DateTime<chrono::Utc>,
-    pub rpc_tx: Option<mpsc::UnboundedSender<String>>,
+    pub agent_ip: String,
 }
 
 #[cfg(test)]
@@ -64,13 +57,10 @@ mod tests {
                 "".to_string(),
             ),
             vm_connections: RwLock::new(HashMap::new()),
-            pending_tool_results: RwLock::new(HashMap::new()),
-            pending_queries: RwLock::new(HashMap::new()),
-            pending_rpc_requests: RwLock::new(HashMap::new()),
             event_tx: broadcast::channel(100).0,
             data_dir: std::path::PathBuf::from("/tmp"),
             apply_tx: mpsc::unbounded_channel().0,
-            rpc_registry: Arc::new(RpcRegistry::new()),
+            grpc_client: Arc::new(AgentGrpcClient::new()),
         };
         assert!(state.data_dir.to_str().unwrap().contains("tmp"));
     }
@@ -81,7 +71,7 @@ mod tests {
             agent_name: "agent-1".to_string(),
             connected: true,
             last_heartbeat: chrono::Utc::now(),
-            rpc_tx: None,
+            agent_ip: "127.0.0.1".to_string(),
         };
         assert_eq!(conn.agent_name, "agent-1");
         assert!(conn.connected);

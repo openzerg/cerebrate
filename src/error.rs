@@ -17,6 +17,9 @@ pub enum Error {
     #[error("Not found: {0}")]
     NotFound(String),
 
+    #[error("Already exists: {0}")]
+    AlreadyExists(String),
+
     #[error("Validation error: {0}")]
     Validation(String),
 
@@ -37,6 +40,12 @@ pub enum Error {
 
     #[error("Config error: {0}")]
     Config(String),
+
+    #[error("Connection lost: {0}")]
+    ConnectionLost(String),
+
+    #[error("Internal error: {0}")]
+    Internal(String),
 }
 
 pub type Result<T> = std::result::Result<T, Error>;

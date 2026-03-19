@@ -625,3 +625,91 @@ mod tests {
         }
     }
 }
+
+#[derive(Debug, Clone)]
+pub struct AgentInfo {
+    pub name: String,
+    pub enabled: bool,
+    pub container_ip: String,
+    pub host_ip: String,
+    pub forgejo_username: Option<String>,
+    pub online: bool,
+    pub model_id: Option<String>,
+    pub model_name: Option<String>,
+    pub internal_token: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct ProviderInfo {
+    pub id: String,
+    pub name: String,
+    pub provider_type: String,
+    pub base_url: String,
+    pub enabled: bool,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ModelInfo {
+    pub id: String,
+    pub name: String,
+    pub provider_id: String,
+    pub provider_name: String,
+    pub model_name: String,
+    pub enabled: bool,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+}
+
+#[derive(Debug, Clone)]
+pub struct StatsSummary {
+    pub total_agents: i64,
+    pub online_agents: i64,
+    pub enabled_agents: i64,
+}
+
+#[derive(Debug, Clone)]
+pub struct LlmProvider {
+    pub name: String,
+    pub provider_type: String,
+    pub base_url: String,
+    pub api_key: String,
+    pub enabled: bool,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct LlmModel {
+    pub name: String,
+    pub provider_id: String,
+    pub model_name: String,
+    pub enabled: bool,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct SkillInfo {
+    pub slug: String,
+    pub name: String,
+    pub version: String,
+    pub description: String,
+    pub forgejo_repo: String,
+    pub git_commit: String,
+    pub author_agent: String,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ToolInfo {
+    pub slug: String,
+    pub name: String,
+    pub version: String,
+    pub description: String,
+    pub forgejo_repo: String,
+    pub git_commit: String,
+    pub entrypoint: String,
+    pub input_json: String,
+    pub output_json: String,
+    pub author_agent: String,
+    pub allowed_agents: Vec<String>,
+    pub enabled: bool,
+}

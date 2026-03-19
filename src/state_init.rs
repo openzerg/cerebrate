@@ -7,8 +7,7 @@ use swarm::state;
 use swarm::agent_manager;
 use swarm::tool_manager;
 use swarm::protocol;
-use swarm::rpc::RpcRegistry;
-use swarm::rpc::methods::register_all_methods;
+use swarm::grpc::AgentGrpcClient;
 
 pub async fn init_state(data_dir: std::path::PathBuf) -> Result<Arc<AppState>> {
     tokio::fs::create_dir_all(&data_dir).await?;
@@ -35,23 +34,18 @@ pub async fn init_state(data_dir: std::path::PathBuf) -> Result<Arc<AppState>> {
     let (event_tx, _) = tokio::sync::broadcast::channel::<protocol::AgentEvent>(256);
     let (apply_tx, apply_rx) = tokio::sync::mpsc::unbounded_channel::<()>();
     
-    let rpc_registry = Arc::new(RpcRegistry::new());
+    let grpc_client = Arc::new(AgentGrpcClient::new());
 
     let state = Arc::new(AppState {
         state_manager,
         agent_manager,
         tool_manager,
         vm_connections: RwLock::new(HashMap::new()),
-        pending_tool_results: RwLock::new(HashMap::new()),
-        pending_queries: RwLock::new(HashMap::new()),
-        pending_rpc_requests: RwLock::new(HashMap::new()),
         event_tx,
         data_dir: data_dir.clone(),
         apply_tx,
-        rpc_registry: rpc_registry.clone(),
+        grpc_client,
     });
-    
-    register_all_methods(&rpc_registry, state.clone()).await;
 
     let state_clone = state.clone();
     tokio::spawn(async move {

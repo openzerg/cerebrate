@@ -1,0 +1,539 @@
+syntax = "proto3";
+
+package swarm;
+
+service SwarmService {
+  // Agent management
+  rpc ListAgents(Empty) returns (AgentListResponse);
+  rpc GetAgent(GetAgentRequest) returns (AgentInfo);
+  rpc CreateAgent(CreateAgentRequest) returns (AgentInfo);
+  rpc DeleteAgent(DeleteAgentRequest) returns (Empty);
+  rpc EnableAgent(EnableAgentRequest) returns (Empty);
+  rpc DisableAgent(DisableAgentRequest) returns (Empty);
+  rpc BindModel(BindModelRequest) returns (AgentInfo);
+  rpc UnbindModel(UnbindModelRequest) returns (AgentInfo);
+
+  // LLM Provider management
+  rpc ListProviders(Empty) returns (ProviderListResponse);
+  rpc CreateProvider(CreateProviderRequest) returns (ProviderInfo);
+  rpc DeleteProvider(DeleteProviderRequest) returns (Empty);
+  rpc EnableProvider(EnableProviderRequest) returns (Empty);
+  rpc DisableProvider(DisableProviderRequest) returns (Empty);
+
+  // LLM Model management
+  rpc ListModels(Empty) returns (ModelListResponse);
+  rpc CreateModel(CreateModelRequest) returns (ModelInfo);
+  rpc DeleteModel(DeleteModelRequest) returns (Empty);
+  rpc EnableModel(EnableModelRequest) returns (Empty);
+  rpc DisableModel(DisableModelRequest) returns (Empty);
+
+  // Checkpoint management
+  rpc CreateCheckpoint(CreateCheckpointRequest) returns (CheckpointInfo);
+  rpc ListCheckpoints(ListCheckpointsRequest) returns (CheckpointListResponse);
+  rpc DeleteCheckpoint(DeleteCheckpointRequest) returns (Empty);
+  rpc RollbackCheckpoint(RollbackCheckpointRequest) returns (Empty);
+  rpc CloneCheckpoint(CloneCheckpointRequest) returns (AgentInfo);
+
+  // Skill management
+  rpc ListSkills(Empty) returns (SkillListResponse);
+  rpc GetSkill(GetSkillRequest) returns (SkillInfo);
+  rpc CloneSkill(CloneSkillRequest) returns (SkillInfo);
+  rpc PullSkill(PullSkillRequest) returns (SkillInfo);
+  rpc DeleteSkill(DeleteSkillRequest) returns (Empty);
+
+  // Tool management
+  rpc ListTools(Empty) returns (ToolListResponse);
+  rpc GetTool(GetToolRequest) returns (ToolInfo);
+  rpc CloneTool(CloneToolRequest) returns (ToolInfo);
+  rpc PullTool(PullToolRequest) returns (ToolInfo);
+  rpc DeleteTool(DeleteToolRequest) returns (Empty);
+  rpc AuthorizeTool(AuthorizeToolRequest) returns (Empty);
+  rpc RevokeTool(RevokeToolRequest) returns (Empty);
+  rpc InvokeTool(InvokeToolRequest) returns (InvokeToolResponse);
+  rpc ListToolEnv(ListToolEnvRequest) returns (ToolEnvListResponse);
+  rpc SetToolEnv(SetToolEnvRequest) returns (Empty);
+  rpc DeleteToolEnv(DeleteToolEnvRequest) returns (Empty);
+
+  // Stats
+  rpc GetStats(Empty) returns (StatsResponse);
+
+  // Forward to agent (session, process, task, activity, message)
+  rpc ListSessions(ListSessionsRequest) returns (SessionListResponse);
+  rpc GetSession(GetSessionRequest) returns (SessionInfo);
+  rpc GetSessionMessages(GetSessionMessagesRequest) returns (MessageListResponse);
+  rpc SendSessionChat(SendSessionChatRequest) returns (Empty);
+  rpc InterruptSession(InterruptSessionRequest) returns (Empty);
+  rpc GetSessionContext(GetSessionContextRequest) returns (SessionContextResponse);
+
+  rpc ListProcesses(ListProcessesRequest) returns (ProcessListResponse);
+  rpc GetProcess(GetProcessRequest) returns (ProcessInfo);
+  rpc GetProcessOutput(GetProcessOutputRequest) returns (ProcessOutputResponse);
+
+  rpc ListTasks(ListTasksRequest) returns (TaskListResponse);
+  rpc GetTask(GetTaskRequest) returns (TaskInfo);
+
+  rpc ListActivities(ListActivitiesRequest) returns (ActivityListResponse);
+
+  rpc SendMessage(SendMessageRequest) returns (Empty);
+  rpc SendRemind(SendRemindRequest) returns (Empty);
+
+  rpc ListBuiltinTools(ListBuiltinToolsRequest) returns (BuiltinToolListResponse);
+  rpc ExecuteBuiltinTool(ExecuteBuiltinToolRequest) returns (ExecuteBuiltinToolResponse);
+
+  // Events streaming
+  rpc SubscribeEvents(SubscribeEventsRequest) returns (stream AgentEvent);
+}
+
+message Empty {}
+
+message AgentInfo {
+  string name = 1;
+  bool enabled = 2;
+  string container_ip = 3;
+  string host_ip = 4;
+  string forgejo_username = 5;
+  bool online = 6;
+  string model_id = 7;
+  string model_name = 8;
+  string internal_token = 9;
+}
+
+message AgentListResponse {
+  repeated AgentInfo agents = 1;
+}
+
+message GetAgentRequest {
+  string name = 1;
+}
+
+message CreateAgentRequest {
+  string name = 1;
+  optional string forgejo_username = 2;
+}
+
+message DeleteAgentRequest {
+  string name = 1;
+}
+
+message EnableAgentRequest {
+  string name = 1;
+}
+
+message DisableAgentRequest {
+  string name = 1;
+}
+
+message BindModelRequest {
+  string agent = 1;
+  string model_id = 2;
+}
+
+message UnbindModelRequest {
+  string agent = 1;
+}
+
+message ProviderInfo {
+  string id = 1;
+  string name = 2;
+  string provider_type = 3;
+  string base_url = 4;
+  bool enabled = 5;
+  string created_at = 6;
+}
+
+message ProviderListResponse {
+  repeated ProviderInfo providers = 1;
+}
+
+message CreateProviderRequest {
+  string name = 1;
+  string provider_type = 2;
+  string base_url = 3;
+  string api_key = 4;
+}
+
+message DeleteProviderRequest {
+  string id = 1;
+}
+
+message EnableProviderRequest {
+  string id = 1;
+}
+
+message DisableProviderRequest {
+  string id = 1;
+}
+
+message ModelInfo {
+  string id = 1;
+  string name = 2;
+  string provider_id = 3;
+  string provider_name = 4;
+  string model_name = 5;
+  bool enabled = 6;
+  string created_at = 7;
+}
+
+message ModelListResponse {
+  repeated ModelInfo models = 1;
+}
+
+message CreateModelRequest {
+  string name = 1;
+  string provider_id = 2;
+  string model_name = 3;
+}
+
+message DeleteModelRequest {
+  string id = 1;
+}
+
+message EnableModelRequest {
+  string id = 1;
+}
+
+message DisableModelRequest {
+  string id = 1;
+}
+
+message CheckpointInfo {
+  string id = 1;
+  string agent_name = 2;
+  string description = 3;
+  string created_at = 4;
+}
+
+message CheckpointListResponse {
+  repeated CheckpointInfo checkpoints = 1;
+}
+
+message CreateCheckpointRequest {
+  string agent = 1;
+  optional string description = 2;
+}
+
+message ListCheckpointsRequest {
+  optional string agent = 1;
+}
+
+message DeleteCheckpointRequest {
+  string id = 1;
+}
+
+message RollbackCheckpointRequest {
+  string agent = 1;
+  string checkpoint_id = 2;
+}
+
+message CloneCheckpointRequest {
+  string id = 1;
+  string new_name = 2;
+}
+
+message SkillInfo {
+  string slug = 1;
+  string name = 2;
+  string version = 3;
+  string description = 4;
+  string forgejo_repo = 5;
+  string git_commit = 6;
+  string author_agent = 7;
+  string created_at = 8;
+}
+
+message SkillListResponse {
+  repeated SkillInfo skills = 1;
+}
+
+message GetSkillRequest {
+  string slug = 1;
+}
+
+message CloneSkillRequest {
+  string slug = 1;
+  string author_agent = 2;
+  string forgejo_repo = 3;
+}
+
+message PullSkillRequest {
+  string slug = 1;
+}
+
+message DeleteSkillRequest {
+  string slug = 1;
+}
+
+message ToolInfo {
+  string slug = 1;
+  string name = 2;
+  string version = 3;
+  string description = 4;
+  string forgejo_repo = 5;
+  string git_commit = 6;
+  string entrypoint = 7;
+  string input_schema = 8;
+  string output_schema = 9;
+  string author_agent = 10;
+  repeated string allowed_agents = 11;
+  bool enabled = 12;
+}
+
+message ToolListResponse {
+  repeated ToolInfo tools = 1;
+}
+
+message GetToolRequest {
+  string slug = 1;
+}
+
+message CloneToolRequest {
+  string slug = 1;
+  string author_agent = 2;
+  string forgejo_repo = 3;
+}
+
+message PullToolRequest {
+  string slug = 1;
+}
+
+message DeleteToolRequest {
+  string slug = 1;
+}
+
+message AuthorizeToolRequest {
+  string slug = 1;
+  string agent_name = 2;
+}
+
+message RevokeToolRequest {
+  string slug = 1;
+  string agent_name = 2;
+}
+
+message InvokeToolRequest {
+  string slug = 1;
+  string input_json = 2;
+  optional string caller = 3;
+}
+
+message InvokeToolResponse {
+  string output_json = 1;
+}
+
+message ListToolEnvRequest {
+  string slug = 1;
+}
+
+message ToolEnvListResponse {
+  repeated string keys = 1;
+}
+
+message SetToolEnvRequest {
+  string slug = 1;
+  string key = 2;
+  string value = 3;
+}
+
+message DeleteToolEnvRequest {
+  string slug = 1;
+  string key = 2;
+}
+
+message StatsResponse {
+  int64 total_agents = 1;
+  int64 online_agents = 2;
+  int64 enabled_agents = 3;
+}
+
+// Session types
+message SessionInfo {
+  string id = 1;
+  string purpose = 2;
+  string state = 3;
+  string created_at = 4;
+  int64 message_count = 5;
+}
+
+message SessionListResponse {
+  repeated SessionInfo sessions = 1;
+  int64 total = 2;
+}
+
+message ListSessionsRequest {
+  string agent = 1;
+}
+
+message GetSessionRequest {
+  string agent = 1;
+  string id = 2;
+}
+
+message GetSessionMessagesRequest {
+  string agent = 1;
+  string session_id = 2;
+  optional int64 offset = 3;
+  optional int64 limit = 4;
+}
+
+message MessageInfo {
+  string id = 1;
+  string session_id = 2;
+  string role = 3;
+  string content = 4;
+  string timestamp = 5;
+  string tool_calls_json = 6;
+}
+
+message MessageListResponse {
+  repeated MessageInfo messages = 1;
+  int64 total = 2;
+}
+
+message SendSessionChatRequest {
+  string agent = 1;
+  string session_id = 2;
+  string content = 3;
+}
+
+message InterruptSessionRequest {
+  string agent = 1;
+  string session_id = 2;
+  string message = 3;
+}
+
+message GetSessionContextRequest {
+  string agent = 1;
+  string session_id = 2;
+}
+
+message SessionContextResponse {
+  string context_json = 1;
+}
+
+// Process types
+message ProcessInfo {
+  string id = 1;
+  string command = 2;
+  string status = 3;
+  string started_at = 4;
+}
+
+message ProcessListResponse {
+  repeated ProcessInfo processes = 1;
+  int64 total = 2;
+}
+
+message ListProcessesRequest {
+  string agent = 1;
+}
+
+message GetProcessRequest {
+  string agent = 1;
+  string id = 2;
+}
+
+message GetProcessOutputRequest {
+  string agent = 1;
+  string process_id = 2;
+  optional string stream = 3;
+  optional int64 offset = 4;
+  optional int64 limit = 5;
+}
+
+message ProcessOutputResponse {
+  string content = 1;
+  int64 total_size = 2;
+}
+
+// Task types
+message TaskInfo {
+  string id = 1;
+  string content = 2;
+  string status = 3;
+  string priority = 4;
+  string created_at = 5;
+}
+
+message TaskListResponse {
+  repeated TaskInfo tasks = 1;
+  int64 total = 2;
+}
+
+message ListTasksRequest {
+  string agent = 1;
+}
+
+message GetTaskRequest {
+  string agent = 1;
+  string id = 2;
+}
+
+// Activity types
+message ActivityInfo {
+  string id = 1;
+  string activity_type = 2;
+  string description = 3;
+  string timestamp = 4;
+}
+
+message ActivityListResponse {
+  repeated ActivityInfo activities = 1;
+  int64 total = 2;
+}
+
+message ListActivitiesRequest {
+  string agent = 1;
+}
+
+// Message types
+message SendMessageRequest {
+  string agent = 1;
+  string content = 2;
+}
+
+message SendRemindRequest {
+  string agent = 1;
+  string message = 2;
+}
+
+// Builtin tools
+message BuiltinToolInfo {
+  string name = 1;
+  string description = 2;
+  string parameters_json = 3;
+}
+
+message BuiltinToolListResponse {
+  repeated BuiltinToolInfo tools = 1;
+}
+
+message ListBuiltinToolsRequest {
+  string agent = 1;
+}
+
+message ExecuteBuiltinToolRequest {
+  string agent = 1;
+  string tool_name = 2;
+  string args_json = 3;
+  optional string session_id = 4;
+}
+
+message ExecuteBuiltinToolResponse {
+  string title = 1;
+  string output = 2;
+  string metadata_json = 3;
+  string attachments_json = 4;
+  bool truncated = 5;
+}
+
+// Events
+message SubscribeEventsRequest {
+  repeated string agent_names = 1;
+}
+
+message AgentEvent {
+  string event_type = 1;
+  string agent_name = 2;
+  string timestamp = 3;
+  string data_json = 4;
+}
