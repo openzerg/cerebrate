@@ -254,7 +254,7 @@ impl AgentManager {
     localAddress = "{container_ip}";
     
     bindMounts = {{
-      "/workspace" = {{
+      "/root" = {{
         hostPath = "/home/agents/{name}";
         isReadOnly = false;
       }};
@@ -271,7 +271,7 @@ impl AgentManager {
         agentName = "{name}";
         managerUrl = "ws://{host_ip}:{ws_port}";
         internalToken = "{token}";
-        workspace = "/workspace";
+        workspace = "/root";
       }};
       
       networking.firewall.allowedTCPPorts = [ 8080 8081 ];
