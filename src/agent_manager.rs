@@ -322,7 +322,7 @@ impl AgentManager {
                 r#"  fileSystems."/home/agents/{name}" = {{
     device = "{device}";
     fsType = "btrfs";
-    options = [ "subvol=agents/{name}" "compress=zstd" "noatime" ];
+    options = [ "subvol=home/agents/{name}" "compress=zstd" "noatime" ];
   }};
 
 "#,
@@ -473,7 +473,7 @@ mod tests {
         assert!(output.contains("agent2"));
         assert!(output.contains("/dev/nvme0n1"));
         assert!(output.contains("btrfs"));
-        assert!(output.contains("subvol=agents/agent1"));
+        assert!(output.contains("subvol=home/agents/agent1"));
         assert!(output.contains("compress=zstd"));
     }
 
