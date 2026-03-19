@@ -274,7 +274,7 @@ impl AgentManager {
         workspace = "/workspace";
       }};
       
-      networking.firewall.allowedTCPPorts = [ 8080 ];
+      networking.firewall.allowedTCPPorts = [ 8080 8081 ];
       
       system.stateVersion = "25.11";
     }};
