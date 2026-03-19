@@ -31,7 +31,7 @@ pub async fn start_llm_proxy(state: Arc<AppState>) -> crate::Result<()> {
     let app = Router::new()
         .route("/v1/chat/completions", post(proxy_chat_completions))
         .route("/v1/models", get(proxy_models))
-        .route("/v1/*path", post(proxy_generic))
+        .route("/v1/{*path}", post(proxy_generic))
         .with_state(state);
     
     let listener = tokio::net::TcpListener::bind(addr).await?;
