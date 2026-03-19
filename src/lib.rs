@@ -13,16 +13,20 @@ pub mod error;
 pub mod tool_manager;
 pub mod sync;
 pub mod llm_proxy;
+pub mod rpc;
 
 use std::collections::HashMap;
-use tokio::sync::{RwLock, broadcast, oneshot};
+use std::sync::Arc;
+use tokio::sync::{RwLock, broadcast, oneshot, mpsc};
 use crate::protocol::AgentEvent;
+use crate::rpc::{RpcRegistry, protocol::RpcResponse};
 
 pub use error::{Error, Result};
 pub use models::*;
 
 pub type PendingToolResults = RwLock<HashMap<String, oneshot::Sender<InvokeToolResponse>>>;
-pub type PendingQueries = RwLock<HashMap<String, tokio::sync::mpsc::Sender<serde_json::Value>>>;
+pub type PendingQueries = RwLock<HashMap<String, mpsc::Sender<serde_json::Value>>>;
+pub type PendingRpcRequests = RwLock<HashMap<String, oneshot::Sender<RpcResponse>>>;
 
 pub struct AppState {
     pub state_manager: state::StateManager,
@@ -31,15 +35,18 @@ pub struct AppState {
     pub vm_connections: RwLock<HashMap<String, VmConnection>>,
     pub pending_tool_results: PendingToolResults,
     pub pending_queries: PendingQueries,
+    pub pending_rpc_requests: PendingRpcRequests,
     pub event_tx: broadcast::Sender<AgentEvent>,
     pub data_dir: std::path::PathBuf,
-    pub apply_tx: tokio::sync::mpsc::UnboundedSender<()>,
+    pub apply_tx: mpsc::UnboundedSender<()>,
+    pub rpc_registry: Arc<RpcRegistry>,
 }
 
 pub struct VmConnection {
     pub agent_name: String,
     pub connected: bool,
     pub last_heartbeat: chrono::DateTime<chrono::Utc>,
+    pub rpc_tx: Option<mpsc::UnboundedSender<String>>,
 }
 
 #[cfg(test)]
@@ -59,9 +66,11 @@ mod tests {
             vm_connections: RwLock::new(HashMap::new()),
             pending_tool_results: RwLock::new(HashMap::new()),
             pending_queries: RwLock::new(HashMap::new()),
+            pending_rpc_requests: RwLock::new(HashMap::new()),
             event_tx: broadcast::channel(100).0,
             data_dir: std::path::PathBuf::from("/tmp"),
-            apply_tx: tokio::sync::mpsc::unbounded_channel().0,
+            apply_tx: mpsc::unbounded_channel().0,
+            rpc_registry: Arc::new(RpcRegistry::new()),
         };
         assert!(state.data_dir.to_str().unwrap().contains("tmp"));
     }
@@ -72,6 +81,7 @@ mod tests {
             agent_name: "agent-1".to_string(),
             connected: true,
             last_heartbeat: chrono::Utc::now(),
+            rpc_tx: None,
         };
         assert_eq!(conn.agent_name, "agent-1");
         assert!(conn.connected);

@@ -180,6 +180,7 @@ async fn handle_vm_connect(state: &AppState, connect: &VmConnect) -> crate::Resu
             agent_name: connect.agent_name.clone(),
             connected: true,
             last_heartbeat: chrono::Utc::now(),
+            rpc_tx: None,
         });
     }
 

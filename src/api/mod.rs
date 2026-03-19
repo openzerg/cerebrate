@@ -1,11 +1,12 @@
-mod types;
+pub mod types;
 mod websocket;
 mod agents;
 mod providers;
 mod checkpoints;
-mod skills;
-mod tools;
+pub mod skills;
+pub mod tools;
 mod agent;
+mod rpc;
 
 use std::sync::Arc;
 use std::net::SocketAddr;
@@ -92,12 +93,14 @@ pub async fn start_server(
         .route("/health", get(health_handler))
         .route("/ws", get(websocket::event_ws_handler))
         .route("/ws/vm", get(websocket::vm_ws_handler))
+        .route("/rpc", get(rpc::rpc_ws_handler))
         .nest("/api", api_routes)
         .layer(CorsLayer::new().allow_origin(Any).allow_methods(Any).allow_headers(Any))
         .with_state(state);
 
     let listener = tokio::net::TcpListener::bind(addr).await?;
     tracing::info!("Zerg Swarm listening on {}", addr);
+    tracing::info!("RPC endpoint available at ws://{}/rpc", addr);
     axum::serve(listener, app).await?;
 
     Ok(())
