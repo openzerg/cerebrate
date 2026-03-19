@@ -68,66 +68,91 @@ pub async fn vm_ws_handler(
 async fn handle_vm_ws(socket: axum::extract::ws::WebSocket, state: Arc<AppState>) {
     let (mut tx, mut rx) = socket.split();
     let mut agent_name: Option<String> = None;
+    let mut event_rx = state.event_tx.subscribe();
 
     tracing::info!("VM WebSocket connection");
 
-    while let Some(msg) = rx.next().await {
-        match msg {
-            Ok(axum::extract::ws::Message::Text(text)) => {
-                match Message::from_json(&text) {
-                    Ok(message) => {
-                        match message {
-                            Message::VmConnect(connect) => {
-                                match handle_vm_connect(&state, &connect).await {
-                                    Ok(name) => agent_name = Some(name),
-                                    Err(e) => {
-                                        tracing::error!("VM connect error: {}", e);
-                                        let _ = tx.send(axum::extract::ws::Message::Close(None)).await;
-                                        break;
+    loop {
+        tokio::select! {
+            msg = rx.next() => {
+                match msg {
+                    Some(Ok(axum::extract::ws::Message::Text(text))) => {
+                        match Message::from_json(&text) {
+                            Ok(message) => {
+                                match message {
+                                    Message::VmConnect(connect) => {
+                                        match handle_vm_connect(&state, &connect).await {
+                                            Ok(name) => agent_name = Some(name.clone()),
+                                            Err(e) => {
+                                                tracing::error!("VM connect error: {}", e);
+                                                let _ = tx.send(axum::extract::ws::Message::Close(None)).await;
+                                                break;
+                                            }
+                                        }
+                                    }
+                                    Message::VmHeartbeat(heartbeat) => {
+                                        handle_vm_heartbeat(&state, &heartbeat).await;
+                                    }
+                                    Message::VmStatusReport(report) => {
+                                        let _ = state.event_tx.send(AgentEvent {
+                                            event: AgentEventType::StatusUpdate,
+                                            agent_name: report.agent_name.clone(),
+                                            timestamp: chrono::Utc::now(),
+                                            data: Some(serde_json::to_value(&report.data).unwrap_or(serde_json::Value::Null)),
+                                        });
+                                    }
+                                    Message::VmSkillResult(result) => {
+                                        handle_vm_skill_result(&state, &result).await;
+                                    }
+                                    Message::VmEventAck(ack) => {
+                                        tracing::debug!("Event acked: {}", ack.event_id);
+                                    }
+                                    _ => {}
+                                }
+                            }
+                            Err(e) => {
+                                tracing::warn!("Failed to parse message: {}", e);
+                            }
+                        }
+                    }
+                    Some(Ok(axum::extract::ws::Message::Close(_))) => break,
+                    Some(Ok(axum::extract::ws::Message::Ping(data))) => {
+                        if tx.send(axum::extract::ws::Message::Pong(data)).await.is_err() {
+                            break;
+                        }
+                    }
+                    Some(Err(e)) => {
+                        tracing::error!("WebSocket error: {}", e);
+                        break;
+                    }
+                    None => break,
+                    _ => {}
+                }
+            }
+            event = event_rx.recv() => {
+                if let Some(ref name) = agent_name {
+                    if let Ok(agent_event) = event {
+                        if agent_event.agent_name == *name {
+                            if let Some(data) = &agent_event.data {
+                                if let Ok(host_event) = serde_json::from_value::<crate::protocol::HostEvent>(data.clone()) {
+                                    let msg = Message::HostEvent(host_event);
+                                    if let Ok(json) = msg.to_json() {
+                                        if tx.send(axum::extract::ws::Message::Text(json.into())).await.is_err() {
+                                            break;
+                                        }
                                     }
                                 }
                             }
-                            Message::VmHeartbeat(heartbeat) => {
-                                handle_vm_heartbeat(&state, &heartbeat).await;
-                            }
-                            Message::VmStatusReport(report) => {
-                                let _ = state.event_tx.send(AgentEvent {
-                                    event: AgentEventType::StatusUpdate,
-                                    agent_name: report.agent_name.clone(),
-                                    timestamp: chrono::Utc::now(),
-                                    data: Some(serde_json::to_value(&report.data).unwrap_or(serde_json::Value::Null)),
-                                });
-                            }
-                            Message::VmSkillResult(result) => {
-                                handle_vm_skill_result(&state, &result).await;
-                            }
-                            _ => {}
                         }
                     }
-                    Err(e) => {
-                        tracing::warn!("Failed to parse message: {}", e);
-                    }
                 }
             }
-            Ok(axum::extract::ws::Message::Close(_)) => break,
-            Ok(axum::extract::ws::Message::Ping(data)) => {
-                if tx.send(axum::extract::ws::Message::Pong(data)).await.is_err() {
-                    break;
-                }
-            }
-            Err(e) => {
-                tracing::error!("WebSocket error: {}", e);
-                break;
-            }
-            _ => {}
         }
     }
 
     if let Some(name) = agent_name {
         let mut connections = state.vm_connections.write().await;
-        if let Some(conn) = connections.get_mut(&name) {
-            conn.connected = false;
-        }
+        connections.remove(&name);
         drop(connections);
         
         let _ = state.event_tx.send(AgentEvent {
