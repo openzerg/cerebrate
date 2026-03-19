@@ -85,10 +85,13 @@ pub async fn create_agent(
     let now = chrono::Utc::now().to_rfc3339();
     let internal_token = uuid::Uuid::new_v4().to_string();
     
+    let container_ip = format!("{}.{}.2", sw.defaults.container_subnet_base, agent_num);
+    let host_ip = format!("{}.{}.1", sw.defaults.container_subnet_base, agent_num);
+    
     let agent = crate::models::Agent {
         enabled: true,
-        container_ip: format!("{}.{}.2", sw.defaults.container_subnet_base, agent_num),
-        host_ip: format!("{}.{}.1", sw.defaults.container_subnet_base, agent_num),
+        container_ip: container_ip.clone(),
+        host_ip: host_ip.clone(),
         forgejo_username: req.forgejo_username.clone(),
         internal_token: internal_token.clone(),
         model_id: None,
@@ -107,8 +110,8 @@ pub async fn create_agent(
     Json(ApiResponse::success(AgentInfo {
         name: req.name,
         enabled: true,
-        container_ip: format!("{}.{}.2", sw.defaults.container_subnet_base, agent_num),
-        host_ip: format!("{}.{}.1", sw.defaults.container_subnet_base, agent_num),
+        container_ip,
+        host_ip,
         forgejo_username: req.forgejo_username,
         online: false,
         model_id: None,
@@ -219,11 +222,10 @@ pub async fn bind_model(
         Err(e) => return Json(ApiResponse::error(e.to_string())),
     };
     
-    if !sw.models.contains_key(&req.model_id) {
-        return Json(ApiResponse::error(format!("Model '{}' not found", req.model_id)));
-    }
-    
-    let model_name = sw.models.get(&req.model_id).map(|m| m.name.clone());
+    let model = match sw.models.get(&req.model_id) {
+        Some(m) => m.clone(),
+        None => return Json(ApiResponse::error(format!("Model '{}' not found", req.model_id))),
+    };
     
     let (enabled, container_ip, host_ip, forgejo_username, internal_token) = {
         let agent = match sw.agents.get_mut(&name) {
@@ -241,6 +243,27 @@ pub async fn bind_model(
         return Json(ApiResponse::error(e.to_string()));
     }
     
+    // Send ConfigUpdate event to agent
+    let config_update = crate::protocol::AgentEventMessage::ConfigUpdate {
+        llm_base_url: Some(format!("{}:17534", host_ip)),
+        llm_api_key: Some(internal_token.clone()),
+        llm_model: Some(model.name.clone()),
+    };
+    
+    let host_event = crate::protocol::HostEvent {
+        event_id: uuid::Uuid::new_v4().to_string(),
+        event: config_update,
+    };
+    
+    let _ = state.event_tx.send(crate::protocol::AgentEvent {
+        event: crate::protocol::AgentEventType::StatusUpdate,
+        agent_name: name.clone(),
+        timestamp: chrono::Utc::now(),
+        data: Some(serde_json::to_value(&host_event).unwrap_or(serde_json::Value::Null)),
+    });
+    
+    tracing::info!("Sent ConfigUpdate to agent {}: llm_model={}", name, model.name);
+    
     let online = state.vm_connections.read().await
         .get(&name).map(|c| c.connected).unwrap_or(false);
     
@@ -252,7 +275,7 @@ pub async fn bind_model(
         forgejo_username,
         online,
         model_id: Some(req.model_id),
-        model_name,
+        model_name: Some(model.name),
         internal_token,
     }))
 }
