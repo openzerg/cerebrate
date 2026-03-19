@@ -2,6 +2,7 @@ use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
 pub const DEFAULT_PORT: u16 = 17531;
+#[allow(dead_code)]
 pub const MAX_CHECKPOINTS_PER_AGENT: usize = 10;
 
 #[derive(Parser)]

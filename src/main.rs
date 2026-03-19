@@ -4,7 +4,6 @@ mod state_init;
 
 use clap::Parser;
 use cli::{Cli, Commands, get_data_dir};
-use swarm::Result;
 
 #[tokio::main]
 async fn main() -> swarm::Result<()> {
