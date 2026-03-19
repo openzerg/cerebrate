@@ -192,32 +192,57 @@ async fn forward_to_agent(
     method: &str,
     params: Option<serde_json::Value>,
 ) -> Result<serde_json::Value, RpcError> {
-    let connections = state.vm_connections.read().await;
-    let agent_conn = connections.get(agent_name)
-        .ok_or_else(|| RpcError::agent_not_found(agent_name))?;
+    // Get agent connection and rpc_tx
+    let rpc_tx = {
+        let connections = state.vm_connections.read().await;
+        let agent_conn = connections.get(agent_name)
+            .ok_or_else(|| RpcError::agent_not_found(agent_name))?;
+        
+        if !agent_conn.connected {
+            return Err(RpcError::agent_not_found(agent_name));
+        }
+        
+        agent_conn.rpc_tx.clone()
+            .ok_or_else(|| RpcError::internal_error("Agent RPC channel not available"))?
+    };
     
-    if !agent_conn.connected {
-        return Err(RpcError::agent_not_found(agent_name));
-    }
-    
+    // Create request ID and pending response channel
+    let request_id = chrono::Utc::now().timestamp();
     let (tx, rx) = oneshot::channel();
-    let request_id = uuid::Uuid::new_v4().to_string();
     
     {
         let mut pending = state.pending_rpc_requests.write().await;
-        pending.insert(request_id.clone(), tx);
+        pending.insert(request_id.to_string(), tx);
     }
     
+    // Create and send RPC request
     let request = RpcRequest {
         jsonrpc: "2.0".into(),
-        id: Some(chrono::Utc::now().timestamp()),
+        id: Some(request_id),
         method: method.to_string(),
         params,
     };
     
-    // TODO: Send request to agent via WebSocket
-    // This requires the agent connection to have a request sender
+    let json = request.to_json()
+        .map_err(|e| RpcError::internal_error(e.message))?;
     
-    // For now, return an error indicating this is not yet implemented
-    Err(RpcError::internal_error("Agent RPC forwarding not yet implemented"))
+    rpc_tx.send(json)
+        .map_err(|_| RpcError::internal_error("Failed to send RPC request to agent"))?;
+    
+    // Wait for response with timeout
+    let response = tokio::time::timeout(
+        std::time::Duration::from_secs(30),
+        rx
+    ).await
+        .map_err(|_| RpcError::internal_error("RPC request timeout"))?
+        .map_err(|_| RpcError::internal_error("RPC response channel closed"))?;
+    
+    // Return result or error
+    if let Some(result) = response.result {
+        Ok(result)
+    } else if let Some(error) = response.error {
+        Err(error)
+    } else {
+        Err(RpcError::internal_error("Empty RPC response"))
+    }
 }

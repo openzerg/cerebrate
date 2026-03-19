@@ -145,6 +145,10 @@ impl RpcRequest {
 }
 
 impl RpcResponse {
+    pub fn parse(json: &str) -> Result<Self, RpcError> {
+        serde_json::from_str(json).map_err(|_| RpcError::parse_error())
+    }
+
     pub fn to_json(&self) -> Result<String, RpcError> {
         serde_json::to_string(self).map_err(|_| RpcError::internal_error("Serialization failed"))
     }
