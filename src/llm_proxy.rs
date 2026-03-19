@@ -1,5 +1,6 @@
 use std::net::SocketAddr;
 use std::sync::Arc;
+use std::time::Duration;
 use axum::{
     Router,
     routing::{get, post},
@@ -12,6 +13,13 @@ use crate::AppState;
 use serde::{Deserialize, Serialize};
 
 const LLM_PROXY_PORT: u16 = 17534;
+
+fn create_client() -> reqwest::Client {
+    reqwest::Client::builder()
+        .timeout(Duration::from_secs(120))
+        .build()
+        .unwrap()
+}
 
 #[derive(Debug, Serialize)]
 struct ProxyError {
@@ -126,13 +134,16 @@ async fn proxy_models(
     
     let target_url = format!("{}/models", provider.base_url);
     
-    let client = reqwest::Client::new();
+    let client = create_client();
     let resp = client
         .get(&target_url)
         .header("Authorization", format!("Bearer {}", provider.api_key))
         .send()
         .await
-        .map_err(|_| StatusCode::BAD_GATEWAY)?;
+        .map_err(|e| {
+            tracing::error!("LLM proxy models request failed: {}", e);
+            StatusCode::BAD_GATEWAY
+        })?;
     
     let status = resp.status();
     let body = resp.text().await.map_err(|_| StatusCode::BAD_GATEWAY)?;
@@ -167,7 +178,7 @@ async fn proxy_generic(
     
     let target_url = provider.base_url.clone();
     
-    let client = reqwest::Client::new();
+    let client = create_client();
     let resp = client
         .post(&target_url)
         .header("Authorization", format!("Bearer {}", provider.api_key))
@@ -175,7 +186,10 @@ async fn proxy_generic(
         .body(body)
         .send()
         .await
-        .map_err(|_| StatusCode::BAD_GATEWAY)?;
+        .map_err(|e| {
+            tracing::error!("LLM proxy generic request failed: {}", e);
+            StatusCode::BAD_GATEWAY
+        })?;
     
     let status = resp.status();
     let body = resp.text().await.map_err(|_| StatusCode::BAD_GATEWAY)?;
@@ -187,7 +201,9 @@ async fn proxy_generic(
 }
 
 async fn forward_request(target_url: &str, api_key: &str, body: &serde_json::Value) -> Result<Response<Body>, StatusCode> {
-    let client = reqwest::Client::new();
+    let client = create_client();
+    
+    tracing::info!("Forwarding LLM request to: {}", target_url);
     
     let resp = client
         .post(target_url)
@@ -196,10 +212,18 @@ async fn forward_request(target_url: &str, api_key: &str, body: &serde_json::Val
         .json(body)
         .send()
         .await
-        .map_err(|_| StatusCode::BAD_GATEWAY)?;
+        .map_err(|e| {
+            tracing::error!("LLM proxy request failed: {}", e);
+            StatusCode::BAD_GATEWAY
+        })?;
     
     let status = resp.status();
-    let body = resp.text().await.map_err(|_| StatusCode::BAD_GATEWAY)?;
+    tracing::info!("LLM proxy response status: {}", status);
+    
+    let body = resp.text().await.map_err(|e| {
+        tracing::error!("Failed to read LLM response body: {}", e);
+        StatusCode::BAD_GATEWAY
+    })?;
     
     let mut response = Response::new(Body::from(body));
     *response.status_mut() = StatusCode::from_u16(status.as_u16()).unwrap_or(StatusCode::OK);
