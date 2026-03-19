@@ -245,7 +245,7 @@ pub async fn bind_model(
     
     // Send ConfigUpdate event to agent
     let config_update = crate::protocol::AgentEventMessage::ConfigUpdate {
-        llm_base_url: Some(format!("{}:17534", host_ip)),
+        llm_base_url: Some(format!("http://{}:17534", host_ip)),
         llm_api_key: Some(internal_token.clone()),
         llm_model: Some(model.name.clone()),
     };
