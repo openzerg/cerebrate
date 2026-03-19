@@ -98,7 +98,7 @@ async fn proxy_chat_completions(
     
     req_body["model"] = serde_json::json!(model.model_name);
     
-    let target_url = format!("{}/v1/chat/completions", provider.base_url);
+    let target_url = format!("{}/chat/completions", provider.base_url);
     
     forward_request(&target_url, &provider.api_key, &req_body).await
 }
@@ -124,7 +124,7 @@ async fn proxy_models(
     let provider = sw.providers.get(&model.provider_id)
         .ok_or(StatusCode::NOT_FOUND)?;
     
-    let target_url = format!("{}/v1/models", provider.base_url);
+    let target_url = format!("{}/models", provider.base_url);
     
     let client = reqwest::Client::new();
     let resp = client
@@ -165,7 +165,7 @@ async fn proxy_generic(
     let provider = sw.providers.get(&model.provider_id)
         .ok_or(StatusCode::NOT_FOUND)?;
     
-    let target_url = format!("{}/v1", provider.base_url);
+    let target_url = provider.base_url.clone();
     
     let client = reqwest::Client::new();
     let resp = client
