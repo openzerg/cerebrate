@@ -162,7 +162,7 @@ pub async fn list_files(
     Path(name): Path<String>,
     State(_state): State<Arc<AppState>>,
 ) -> impl IntoResponse {
-    let workspace = std::path::PathBuf::from("/var/lib/agents").join(&name);
+    let workspace = std::path::PathBuf::from("/home/agents").join(&name);
     
     if !workspace.exists() {
         return Err(StatusCode::NOT_FOUND);
@@ -204,7 +204,7 @@ pub async fn get_file(
     Path((name, path)): Path<(String, String)>,
     State(_state): State<Arc<AppState>>,
 ) -> impl IntoResponse {
-    let workspace = std::path::PathBuf::from("/var/lib/agents").join(&name);
+    let workspace = std::path::PathBuf::from("/home/agents").join(&name);
     let file_path = workspace.join(&path);
     
     if !file_path.exists() || !file_path.starts_with(&workspace) {
@@ -267,7 +267,7 @@ pub async fn update_file(
     State(_state): State<Arc<AppState>>,
     Json(req): Json<UpdateFileRequest>,
 ) -> impl IntoResponse {
-    let workspace = std::path::PathBuf::from("/var/lib/agents").join(&name);
+    let workspace = std::path::PathBuf::from("/home/agents").join(&name);
     let file_path = workspace.join(&path);
     
     if !file_path.starts_with(&workspace) {
