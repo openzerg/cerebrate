@@ -1,6 +1,7 @@
 pub mod status;
 pub mod serve;
 pub mod apply;
+pub mod generate_flake;
 pub mod agent;
 pub mod checkpoint;
 pub mod git;
@@ -13,6 +14,7 @@ pub mod tool;
 pub use status::handle_status;
 pub use serve::handle_serve;
 pub use apply::handle_apply;
+pub use generate_flake::handle_generate_flake;
 pub use agent::handle_agent_command;
 pub use checkpoint::handle_checkpoint_command;
 pub use git::handle_git_command;

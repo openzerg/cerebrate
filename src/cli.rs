@@ -38,6 +38,25 @@ pub enum Commands {
         btrfs_device: String,
     },
 
+    #[command(about = "Generate system flake files")]
+    GenerateFlake {
+        #[arg(short, long)]
+        #[arg(help = "Output directory (default: data-dir/system)")]
+        output: Option<PathBuf>,
+
+        #[arg(long, default_value = "/dev/sda2")]
+        #[arg(help = "Btrfs device for agent filesystems")]
+        btrfs_device: String,
+
+        #[arg(short, long)]
+        #[arg(help = "Template directory to copy flake.nix, configuration.nix from")]
+        template: Option<PathBuf>,
+
+        #[arg(long)]
+        #[arg(help = "Overwrite existing files")]
+        force: bool,
+    },
+
     #[command(about = "Agent management")]
     Agent {
         #[command(subcommand)]

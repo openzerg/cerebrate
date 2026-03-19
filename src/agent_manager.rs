@@ -34,7 +34,7 @@ impl AgentManager {
         Ok(())
     }
 
-    async fn ensure_directories(&self) -> Result<()> {
+    pub async fn ensure_directories(&self) -> Result<()> {
         tokio::fs::create_dir_all(&self.generated_dir).await?;
         Ok(())
     }
@@ -138,13 +138,13 @@ impl AgentManager {
         Ok(())
     }
 
-    async fn write_containers_nix(&self, state: &State) -> Result<()> {
+    pub async fn write_containers_nix(&self, state: &State) -> Result<()> {
         let content = self.generate_containers_nix(state);
         tokio::fs::write(self.generated_dir.join("container.nix"), content).await?;
         Ok(())
     }
 
-    async fn write_filesystem_nix(&self, agents: &std::collections::HashMap<String, Agent>, btrfs_device: &str) -> Result<()> {
+    pub async fn write_filesystem_nix(&self, agents: &std::collections::HashMap<String, Agent>, btrfs_device: &str) -> Result<()> {
         let content = self.generate_filesystem_nix(agents, btrfs_device);
         tokio::fs::write(self.generated_dir.join("filesystem.nix"), content).await?;
         Ok(())

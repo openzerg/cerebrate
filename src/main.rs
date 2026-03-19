@@ -23,6 +23,10 @@ async fn main() -> swarm::Result<()> {
             commands::handle_apply(data_dir, template, &btrfs_device).await?;
         }
         
+        Commands::GenerateFlake { output, btrfs_device, template, force } => {
+            commands::handle_generate_flake(data_dir, output, &btrfs_device, template, force).await?;
+        }
+        
         Commands::Agent { command } => {
             commands::handle_agent_command(command, data_dir).await?;
         }
