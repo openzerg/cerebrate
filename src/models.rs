@@ -80,7 +80,7 @@ fn default_port() -> u16 {
     17531
 }
 fn default_container_subnet_base() -> String {
-    "10.200".to_string()
+    "192.168.200".to_string()
 }
 fn default_forgejo_url() -> String {
     "http://localhost:3000".to_string()
@@ -288,8 +288,8 @@ mod tests {
     fn test_agent_serialization() {
         let agent = Agent {
             enabled: true,
-            container_ip: "10.200.1.2".to_string(),
-            host_ip: "10.200.1.1".to_string(),
+            container_ip: "192.168.200.1.2".to_string(),
+            host_ip: "192.168.200.1.1".to_string(),
             forgejo_username: Some("user".to_string()),
             internal_token: "token123".to_string(),
             model_id: None,
@@ -297,16 +297,16 @@ mod tests {
             updated_at: "2024-01-01T00:00:00Z".to_string(),
         };
         let json = serde_json::to_string(&agent).unwrap();
-        assert!(json.contains("10.200.1.2"));
+        assert!(json.contains("192.168.200.1.2"));
         assert!(json.contains("token123"));
     }
 
     #[test]
     fn test_agent_deserialization() {
-        let json = r#"{"enabled":true,"container_ip":"10.200.1.2","host_ip":"10.200.1.1","forgejo_username":null,"internal_token":"token","model_id":null,"created_at":"2024-01-01T00:00:00Z","updated_at":"2024-01-01T00:00:00Z"}"#;
+        let json = r#"{"enabled":true,"container_ip":"192.168.200.1.2","host_ip":"192.168.200.1.1","forgejo_username":null,"internal_token":"token","model_id":null,"created_at":"2024-01-01T00:00:00Z","updated_at":"2024-01-01T00:00:00Z"}"#;
         let agent: Agent = serde_json::from_str(json).unwrap();
         assert!(agent.enabled);
-        assert_eq!(agent.container_ip, "10.200.1.2");
+        assert_eq!(agent.container_ip, "192.168.200.1.2");
     }
 
     #[test]

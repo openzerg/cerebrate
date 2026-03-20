@@ -97,13 +97,13 @@ pub async fn create(
         return Json(ApiResponse::err(&format!("Agent {} already exists", req.name)));
     }
     
-    let container_ip = format!("10.200.{}.2", sw.agents.len() + 2);
+    let container_ip = format!("192.168.200.{}.2", sw.agents.len() + 2);
     let now = chrono::Utc::now().to_rfc3339();
     
     let agent = crate::models::Agent {
         enabled: true,
         container_ip: container_ip.clone(),
-        host_ip: "10.200.1.1".to_string(),
+        host_ip: "192.168.200.1.1".to_string(),
         forgejo_username: req.forgejo_username.clone(),
         internal_token: uuid::Uuid::new_v4().to_string(),
         model_id: None,

@@ -16,7 +16,7 @@ pub fn default_port() -> u16 {
     17531
 }
 pub fn default_container_subnet_base() -> String {
-    "10.200".to_string()
+    "192.168.200".to_string()
 }
 pub fn default_forgejo_url() -> String {
     "http://localhost:3000".to_string()

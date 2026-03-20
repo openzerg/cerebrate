@@ -130,8 +130,8 @@ mod tests {
         let mut state = State::new();
         state.agents.insert("agent-1".to_string(), crate::models::Agent {
             enabled: true,
-            container_ip: "10.200.1.2".to_string(),
-            host_ip: "10.200.1.1".to_string(),
+            container_ip: "192.168.200.1.2".to_string(),
+            host_ip: "192.168.200.1.1".to_string(),
             forgejo_username: None,
             internal_token: "token".to_string(),
             model_id: None,
