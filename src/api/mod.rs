@@ -98,8 +98,9 @@ pub async fn start_server(
 ) -> crate::Result<()> {
     let grpc_addr: std::net::SocketAddr = format!("0.0.0.0:{}", addr.port() + 1).parse().unwrap();
     
-    let grpc_service = crate::grpc::cerebrate::swarm_service_server::SwarmServiceServer::new(
-        crate::grpc::SwarmGrpcServer::new(state.clone())
+    let grpc_service = crate::grpc::cerebrate::swarm_service_server::SwarmServiceServer::with_interceptor(
+        crate::grpc::SwarmGrpcServer::new(state.clone()),
+        crate::grpc::AuthInterceptor,
     );
     
     let http_router = create_router(state);
