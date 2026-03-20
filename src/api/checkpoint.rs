@@ -70,14 +70,7 @@ pub async fn create(
     Path(agent_name): Path<String>,
     Json(req): Json<CreateCheckpointRequest>,
 ) -> Json<ApiResponse<Checkpoint>> {
-    let btrfs_device = std::env::var("ZERG_SWARM_BTRFS_DEVICE")
-        .unwrap_or_else(|_| "/dev/sda2".to_string());
-    
-    let checkpoint_manager = crate::checkpoint::CheckpointManager::new(
-        &state.data_dir,
-        &btrfs_device,
-        &std::path::PathBuf::from("/home/agents"),
-    );
+    let checkpoint_manager = crate::checkpoint::CheckpointManager::new(&state.data_dir);
     
     let id = match checkpoint_manager.create_checkpoint(
         &agent_name,
@@ -121,20 +114,11 @@ pub async fn rollback(
     Path(agent_name): Path<String>,
     Json(req): Json<RollbackRequest>,
 ) -> Json<ApiResponse<()>> {
-    let btrfs_device = std::env::var("ZERG_SWARM_BTRFS_DEVICE")
-        .unwrap_or_else(|_| "/dev/sda2".to_string());
-    
-    let checkpoint_manager = crate::checkpoint::CheckpointManager::new(
-        &state.data_dir,
-        &btrfs_device,
-        &std::path::PathBuf::from("/home/agents"),
-    );
+    let checkpoint_manager = crate::checkpoint::CheckpointManager::new(&state.data_dir);
     
     if let Err(e) = checkpoint_manager.rollback(&agent_name, &req.checkpoint_id).await {
         return Json(ApiResponse::err(&e.to_string()));
     }
-    
-    let _ = state.apply_tx.send(());
     
     Json(ApiResponse::ok(()))
 }
@@ -144,14 +128,7 @@ pub async fn clone(
     Path(id): Path<String>,
     Json(req): Json<CloneRequest>,
 ) -> Json<ApiResponse<super::agent::Agent>> {
-    let btrfs_device = std::env::var("ZERG_SWARM_BTRFS_DEVICE")
-        .unwrap_or_else(|_| "/dev/sda2".to_string());
-    
-    let checkpoint_manager = crate::checkpoint::CheckpointManager::new(
-        &state.data_dir,
-        &btrfs_device,
-        &std::path::PathBuf::from("/home/agents"),
-    );
+    let checkpoint_manager = crate::checkpoint::CheckpointManager::new(&state.data_dir);
     
     if let Err(e) = checkpoint_manager.clone(&id, &req.new_name).await {
         return Json(ApiResponse::err(&e.to_string()));
@@ -159,5 +136,5 @@ pub async fn clone(
     
     let _ = state.apply_tx.send(());
     
-    Json(ApiResponse::err("Checkpoint cloned successfully - agent will be created after NixOS rebuild"))
+    Json(ApiResponse::err("Checkpoint cloned successfully - run 'incus copy' to create the container"))
 }

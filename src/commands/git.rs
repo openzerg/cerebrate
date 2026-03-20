@@ -1,6 +1,6 @@
-use swarm::Result;
-use swarm::state;
-use swarm::forgejo;
+use cerebrate::Result;
+use cerebrate::state;
+use cerebrate::forgejo;
 use crate::cli::GitCommands;
 
 pub async fn handle_git_command(command: GitCommands, data_dir: std::path::PathBuf) -> Result<()> {

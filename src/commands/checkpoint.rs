@@ -1,9 +1,9 @@
-use swarm::Result;
-use swarm::checkpoint;
+use cerebrate::Result;
+use cerebrate::checkpoint;
 use crate::cli::CheckpointCommands;
 
 pub async fn handle_checkpoint_command(command: CheckpointCommands, data_dir: std::path::PathBuf) -> Result<()> {
-    let checkpoint_mgr = checkpoint::CheckpointManager::new(&data_dir, "/dev/sda2", std::path::Path::new("/home"));
+    let checkpoint_mgr = checkpoint::CheckpointManager::new(&data_dir);
     
     match command {
         CheckpointCommands::Clone { checkpoint_id, new_name } => {

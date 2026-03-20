@@ -1,11 +1,10 @@
-use swarm::{Result, agent_manager::AgentManager};
+use cerebrate::{Result, agent_manager::AgentManager};
 use crate::state_init::init_state;
 use std::path::PathBuf;
 
 pub async fn handle_generate_flake(
     data_dir: PathBuf,
     output: Option<PathBuf>,
-    btrfs_device: &str,
     template: Option<PathBuf>,
     force: bool,
 ) -> Result<()> {
@@ -13,12 +12,10 @@ pub async fn handle_generate_flake(
     let sw = state.state_manager.load().await?;
     
     let output_dir = output.unwrap_or_else(|| data_dir.join("system"));
-    let generated_dir = output_dir.join("generated");
     
     println!("Generating system flake files to: {}", output_dir.display());
     
     tokio::fs::create_dir_all(&output_dir).await?;
-    tokio::fs::create_dir_all(&generated_dir).await?;
     
     let manager = AgentManager::new(&output_dir);
     
@@ -27,10 +24,6 @@ pub async fn handle_generate_flake(
     } else {
         ensure_template_files(&output_dir).await?;
     }
-    
-    manager.ensure_directories().await?;
-    manager.write_containers_nix(&sw).await?;
-    manager.write_filesystem_nix(&sw.agents, btrfs_device).await?;
     
     let config_yaml = output_dir.parent()
         .map(|p| p.join("config.yaml"))
@@ -46,16 +39,17 @@ pub async fn handle_generate_flake(
     println!("  - {}/flake.nix", output_dir.display());
     println!("  - {}/configuration.nix", output_dir.display());
     println!("  - {}/hardware-configuration.nix (if exists)", output_dir.display());
-    println!("  - {}/generated/container.nix", output_dir.display());
-    println!("  - {}/generated/filesystem.nix", output_dir.display());
     println!("  - {}", config_yaml.display());
     println!("  - {}/state.json", data_dir.display());
     
-    println!("\nAgent containers:");
+    println!("\nContainers managed by Incus:");
     for (name, agent) in &sw.agents {
         let status = if agent.enabled { "enabled" } else { "disabled" };
-        println!("  - {} ({}) @ {}", name, status, agent.container_ip);
+        println!("  - {} ({})", name, status);
     }
+    
+    println!("\nNote: Containers are now managed by Incus, not NixOS.");
+    println!("Run 'cerebrate apply' to create/update Incus containers.");
     
     Ok(())
 }

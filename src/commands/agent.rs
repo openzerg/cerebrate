@@ -1,6 +1,6 @@
-use swarm::{Result, Agent};
-use swarm::state;
-use swarm::checkpoint;
+use cerebrate::{Result, Agent};
+use cerebrate::state;
+use cerebrate::checkpoint;
 use crate::cli::AgentCommands;
 
 pub async fn handle_agent_command(command: AgentCommands, data_dir: std::path::PathBuf) -> Result<()> {
@@ -108,19 +108,19 @@ pub async fn handle_agent_command(command: AgentCommands, data_dir: std::path::P
         }
         
         AgentCommands::Checkpoint { name, desc } => {
-            let checkpoint_mgr = checkpoint::CheckpointManager::new(&data_dir, "/dev/sda2", std::path::Path::new("/home"));
+            let checkpoint_mgr = checkpoint::CheckpointManager::new(&data_dir);
             let checkpoint_id = checkpoint_mgr.create_checkpoint(&name, desc.as_deref().unwrap_or("")).await?;
             println!("Checkpoint '{}' created for agent '{}'", checkpoint_id, name);
         }
         
         AgentCommands::Rollback { name, checkpoint_id } => {
-            let checkpoint_mgr = checkpoint::CheckpointManager::new(&data_dir, "/dev/sda2", std::path::Path::new("/home"));
+            let checkpoint_mgr = checkpoint::CheckpointManager::new(&data_dir);
             checkpoint_mgr.rollback(&name, &checkpoint_id).await?;
             println!("Rolled back agent '{}' to checkpoint '{}'", name, checkpoint_id);
         }
         
         AgentCommands::ListCheckpoints { name } => {
-            let checkpoint_mgr = checkpoint::CheckpointManager::new(&data_dir, "/dev/sda2", std::path::Path::new("/home"));
+            let checkpoint_mgr = checkpoint::CheckpointManager::new(&data_dir);
             let checkpoints = checkpoint_mgr.list_checkpoints(Some(&name)).await?;
             
             if checkpoints.is_empty() {
@@ -136,7 +136,7 @@ pub async fn handle_agent_command(command: AgentCommands, data_dir: std::path::P
         }
         
         AgentCommands::DeleteCheckpoint { checkpoint_id } => {
-            let checkpoint_mgr = checkpoint::CheckpointManager::new(&data_dir, "/dev/sda2", std::path::Path::new("/home"));
+            let checkpoint_mgr = checkpoint::CheckpointManager::new(&data_dir);
             checkpoint_mgr.delete_checkpoint(&checkpoint_id).await?;
             println!("Checkpoint '{}' deleted", checkpoint_id);
         }

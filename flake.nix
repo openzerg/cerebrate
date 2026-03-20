@@ -27,7 +27,7 @@
 
         commonArgs = {
           inherit src;
-          nativeBuildInputs = [ pkgs.pkg-config ];
+          nativeBuildInputs = [ pkgs.pkg-config pkgs.protobuf ];
           buildInputs = with pkgs; [ openssl sqlite ];
         };
 

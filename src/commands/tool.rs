@@ -1,6 +1,6 @@
-use swarm::{Result, Tool, Error};
-use swarm::state;
-use swarm::tool_manager;
+use cerebrate::{Result, Tool, Error};
+use cerebrate::state;
+use cerebrate::tool_manager;
 use crate::cli::ToolCommands;
 
 pub async fn handle_tool_command(command: ToolCommands, data_dir: std::path::PathBuf) -> Result<()> {

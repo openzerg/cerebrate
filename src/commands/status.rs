@@ -1,14 +1,14 @@
-use swarm::Result;
+use cerebrate::Result;
 use crate::cli::DEFAULT_PORT;
 
 pub async fn handle_status() -> Result<()> {
-    println!("Zerg Swarm Service Status\n");
+    println!("Cerebrate Service Status\n");
     println!("{:<20} {:<10} {}", "SERVICE", "STATUS", "INFO");
     println!("{}", "-".repeat(60));
     
     let hw = check_service_health(DEFAULT_PORT).await;
     let status = if hw.0 { "\x1b[32mrunning\x1b[0m" } else { "\x1b[31mstopped\x1b[0m" };
-    println!("{:<20} {:<10} {}", "zerg-swarm", status, hw.1);
+    println!("{:<20} {:<10} {}", "cerebrate", status, hw.1);
     
     Ok(())
 }

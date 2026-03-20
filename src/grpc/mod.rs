@@ -4,6 +4,6 @@ mod client;
 pub use handler::SwarmGrpcServer;
 pub use client::AgentGrpcClient;
 
-pub mod swarm {
+pub mod cerebrate {
     tonic::include_proto!("swarm");
 }

@@ -2,7 +2,7 @@ pub mod api;
 pub mod agent_manager;
 pub mod state;
 pub mod checkpoint;
-pub mod btrfs;
+pub mod incus;
 pub mod config;
 pub mod forgejo;
 pub mod proxy;

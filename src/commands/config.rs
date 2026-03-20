@@ -1,7 +1,7 @@
-use swarm::Result;
-use swarm::state;
-use swarm::config;
-use swarm::sync;
+use cerebrate::Result;
+use cerebrate::state;
+use cerebrate::config;
+use cerebrate::sync;
 use crate::cli::ConfigCommands;
 
 pub async fn handle_config_command(command: ConfigCommands, data_dir: std::path::PathBuf) -> Result<()> {

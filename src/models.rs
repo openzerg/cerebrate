@@ -169,7 +169,8 @@ pub struct CheckpointMeta {
     pub agent_name: String,
     pub description: String,
     pub created_at: String,
-    pub btrfs_snapshot: String,
+    #[serde(alias = "btrfs_snapshot")]
+    pub snapshot_ref: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -433,7 +434,7 @@ mod tests {
             agent_name: "agent-1".to_string(),
             description: "Before update".to_string(),
             created_at: "2024-01-01T00:00:00Z".to_string(),
-            btrfs_snapshot: "/snapshots/cp-1".to_string(),
+            snapshot_ref: "/snapshots/cp-1".to_string(),
         };
         let json = serde_json::to_string(&cp).unwrap();
         assert!(json.contains("cp-1"));
@@ -477,7 +478,7 @@ mod tests {
             agent_name: "agent-1".to_string(),
             description: "Test checkpoint".to_string(),
             created_at: "2024-01-01T00:00:00Z".to_string(),
-            btrfs_snapshot: "@snapshots/cp_test".to_string(),
+            snapshot_ref: "@snapshots/cp_test".to_string(),
         };
 
         let json = serde_json::to_string(&meta).unwrap();

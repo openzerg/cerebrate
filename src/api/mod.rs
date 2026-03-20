@@ -42,7 +42,7 @@ async fn health_handler() -> Json<HealthResponse> {
     Json(HealthResponse {
         status: "ok",
         version: VERSION,
-        name: "zerg-swarm",
+        name: "cerebrate",
     })
 }
 
@@ -95,7 +95,7 @@ pub async fn start_server(
 ) -> crate::Result<()> {
     let grpc_addr: std::net::SocketAddr = format!("0.0.0.0:{}", addr.port() + 1).parse().unwrap();
     
-    let grpc_service = crate::grpc::swarm::swarm_service_server::SwarmServiceServer::new(
+    let grpc_service = crate::grpc::cerebrate::swarm_service_server::SwarmServiceServer::new(
         crate::grpc::SwarmGrpcServer::new(state.clone())
     );
     

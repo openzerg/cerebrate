@@ -1,5 +1,5 @@
-use swarm::{Result, Provider, ProviderType, Error};
-use swarm::state;
+use cerebrate::{Result, Provider, ProviderType, Error};
+use cerebrate::state;
 use crate::cli::ProviderCommands;
 
 pub async fn handle_provider_command(command: ProviderCommands, data_dir: std::path::PathBuf) -> Result<()> {

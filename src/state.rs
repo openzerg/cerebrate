@@ -195,7 +195,7 @@ mod tests {
             agent_name: "agent-1".to_string(),
             description: "Test checkpoint".to_string(),
             created_at: "2024-01-01T00:00:00Z".to_string(),
-            btrfs_snapshot: "@snapshots/cp_test".to_string(),
+            snapshot_ref: "@snapshots/cp_test".to_string(),
         };
         
         let meta_content = serde_json::to_string_pretty(&meta).unwrap();
@@ -224,7 +224,7 @@ mod tests {
                 agent_name: format!("agent-{}", i),
                 description: "Test".to_string(),
                 created_at: format!("2024-01-0{}T00:00:00Z", i),
-                btrfs_snapshot: format!("@snapshots/cp_{}", i),
+                snapshot_ref: format!("@snapshots/cp_{}", i),
             };
             
             let meta_content = serde_json::to_string_pretty(&meta).unwrap();
@@ -253,7 +253,7 @@ mod tests {
             agent_name: "agent-1".to_string(),
             description: "Success test".to_string(),
             created_at: "2024-01-01T00:00:00Z".to_string(),
-            btrfs_snapshot: "@snapshots/cp_success".to_string(),
+            snapshot_ref: "@snapshots/cp_success".to_string(),
         };
         
         tokio::fs::write(checkpoints_dir.join("meta.json"), serde_json::to_string_pretty(&meta).unwrap()).await.unwrap();

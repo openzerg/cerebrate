@@ -6,7 +6,8 @@ use clap::Parser;
 use cli::{Cli, Commands, get_data_dir};
 
 #[tokio::main]
-async fn main() -> swarm::Result<()> {
+async fn main() -> cerebrate::Result<()> {
+    cli::setup_logging();
     let cli = Cli::parse();
     let data_dir = get_data_dir(cli.data_dir);
     
@@ -19,12 +20,12 @@ async fn main() -> swarm::Result<()> {
             commands::handle_serve(data_dir).await?;
         }
         
-        Commands::Apply { template, btrfs_device } => {
-            commands::handle_apply(data_dir, template, &btrfs_device).await?;
+        Commands::Apply { template } => {
+            commands::handle_apply(data_dir, template).await?;
         }
         
-        Commands::GenerateFlake { output, btrfs_device, template, force } => {
-            commands::handle_generate_flake(data_dir, output, &btrfs_device, template, force).await?;
+        Commands::GenerateFlake { output, template, force } => {
+            commands::handle_generate_flake(data_dir, output, template, force).await?;
         }
         
         Commands::Agent { command } => {

@@ -3,7 +3,7 @@ use tokio::sync::RwLock;
 use std::collections::HashMap;
 use std::time::Duration;
 
-use crate::grpc::swarm::swarm_service_client::SwarmServiceClient;
+use crate::grpc::cerebrate::swarm_service_client::SwarmServiceClient;
 
 pub struct AgentGrpcClient {
     clients: RwLock<HashMap<String, SwarmServiceClient<Channel>>>,

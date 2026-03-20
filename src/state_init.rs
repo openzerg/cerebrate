@@ -2,19 +2,18 @@ use std::sync::Arc;
 use std::collections::HashMap;
 use tokio::sync::RwLock;
 
-use swarm::{AppState, Result};
-use swarm::state;
-use swarm::agent_manager;
-use swarm::tool_manager;
-use swarm::protocol;
-use swarm::grpc::AgentGrpcClient;
+use cerebrate::{AppState, Result};
+use cerebrate::state;
+use cerebrate::agent_manager;
+use cerebrate::tool_manager;
+use cerebrate::protocol;
+use cerebrate::grpc::AgentGrpcClient;
 
 pub async fn init_state(data_dir: std::path::PathBuf) -> Result<Arc<AppState>> {
     tokio::fs::create_dir_all(&data_dir).await?;
 
     let system_dir = data_dir.join("system");
-    let generated_dir = system_dir.join("generated");
-    tokio::fs::create_dir_all(&generated_dir).await?;
+    tokio::fs::create_dir_all(&system_dir).await?;
 
     let state_manager = state::StateManager::new(&data_dir);
     let agent_manager = agent_manager::AgentManager::new(&system_dir);
@@ -59,11 +58,8 @@ async fn handle_apply_tasks(
     state: Arc<AppState>,
     mut apply_rx: tokio::sync::mpsc::UnboundedReceiver<()>,
 ) {
-    let btrfs_device = std::env::var("ZERG_SWARM_BTRFS_DEVICE")
-        .unwrap_or_else(|_| "/dev/sda2".to_string());
-    
     while let Some(_) = apply_rx.recv().await {
-        tracing::info!("Applying NixOS configuration...");
+        tracing::info!("Applying Incus container configuration...");
         
         let _ = state.event_tx.send(protocol::AgentEvent {
             event: protocol::AgentEventType::ConfigApplying,
@@ -74,7 +70,7 @@ async fn handle_apply_tasks(
         
         match state.state_manager.load().await {
             Ok(sw) => {
-                if let Err(e) = state.agent_manager.apply(&sw, &btrfs_device).await {
+                if let Err(e) = state.agent_manager.apply(&sw).await {
                     tracing::error!("Failed to apply configuration: {}", e);
                     let _ = state.event_tx.send(protocol::AgentEvent {
                         event: protocol::AgentEventType::ConfigError,
@@ -83,7 +79,7 @@ async fn handle_apply_tasks(
                         data: Some(serde_json::json!({ "error": e.to_string() })),
                     });
                 } else {
-                    tracing::info!("NixOS configuration applied successfully");
+                    tracing::info!("Incus containers configured successfully");
                     let _ = state.event_tx.send(protocol::AgentEvent {
                         event: protocol::AgentEventType::ConfigApplied,
                         agent_name: "system".to_string(),

@@ -1,6 +1,6 @@
-use swarm::{Result, Skill};
-use swarm::state;
-use swarm::tool_manager;
+use cerebrate::{Result, Skill};
+use cerebrate::state;
+use cerebrate::tool_manager;
 use crate::cli::SkillCommands;
 
 pub async fn handle_skill_command(command: SkillCommands, data_dir: std::path::PathBuf) -> Result<()> {

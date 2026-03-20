@@ -6,8 +6,8 @@ pub const DEFAULT_PORT: u16 = 17531;
 pub const MAX_CHECKPOINTS_PER_AGENT: usize = 10;
 
 #[derive(Parser)]
-#[command(name = "zerg-swarm")]
-#[command(about = "Zerg Swarm - Agent cluster manager for NixOS")]
+#[command(name = "cerebrate")]
+#[command(about = "Cerebrate - Agent cluster manager for NixOS")]
 #[command(version)]
 pub struct Cli {
     #[command(subcommand)]
@@ -15,7 +15,7 @@ pub struct Cli {
 
     #[arg(short, long, global = true)]
     #[arg(value_name = "DIR")]
-    #[arg(help = "Data directory (default: ~/.zerg-swarm, env: ZERG_SWARM_DATA_DIR)")]
+    #[arg(help = "Data directory (default: ~/.cerebrate, env: CEREBRATE_DATA_DIR)")]
     pub data_dir: Option<PathBuf>,
 }
 
@@ -27,15 +27,11 @@ pub enum Commands {
     #[command(about = "Start the server")]
     Serve,
 
-    #[command(about = "Apply NixOS configuration")]
+    #[command(about = "Apply Incus container configuration")]
     Apply {
         #[arg(short, long)]
         #[arg(help = "Template directory (default: data-dir/system)")]
         template: Option<PathBuf>,
-
-        #[arg(long, default_value = "/dev/sda2")]
-        #[arg(help = "Btrfs device for agent filesystems")]
-        btrfs_device: String,
     },
 
     #[command(about = "Generate system flake files")]
@@ -43,10 +39,6 @@ pub enum Commands {
         #[arg(short, long)]
         #[arg(help = "Output directory (default: data-dir/system)")]
         output: Option<PathBuf>,
-
-        #[arg(long, default_value = "/dev/sda2")]
-        #[arg(help = "Btrfs device for agent filesystems")]
-        btrfs_device: String,
 
         #[arg(short, long)]
         #[arg(help = "Template directory to copy flake.nix, configuration.nix from")]
@@ -133,7 +125,7 @@ pub enum AgentCommands {
     #[command(about = "Create a checkpoint")]
     Checkpoint {
         name: String,
-        #[arg(short, long)]
+        #[arg(long)]
         #[arg(help = "Checkpoint description")]
         desc: Option<String>,
     },
@@ -334,13 +326,13 @@ pub fn get_data_dir(cli_data_dir: Option<PathBuf>) -> PathBuf {
         return dir;
     }
 
-    if let Ok(dir) = std::env::var("ZERG_SWARM_DATA_DIR") {
+    if let Ok(dir) = std::env::var("CEREBRATE_DATA_DIR") {
         return PathBuf::from(dir);
     }
 
     dirs::home_dir()
-        .map(|h| h.join(".zerg-swarm"))
-        .unwrap_or_else(|| PathBuf::from(".zerg-swarm"))
+        .map(|h| h.join(".cerebrate"))
+        .unwrap_or_else(|| PathBuf::from(".cerebrate"))
 }
 
 pub fn setup_logging() {
@@ -371,34 +363,34 @@ mod tests {
 
     #[test]
     fn test_get_data_dir_from_env() {
-        std::env::set_var("ZERG_SWARM_DATA_DIR", "/env/dir");
+        std::env::set_var("CEREBRATE_DATA_DIR", "/env/dir");
         let dir = get_data_dir(None);
         assert_eq!(dir, PathBuf::from("/env/dir"));
-        std::env::remove_var("ZERG_SWARM_DATA_DIR");
+        std::env::remove_var("CEREBRATE_DATA_DIR");
     }
 
     #[test]
     fn test_get_data_dir_default() {
-        std::env::remove_var("ZERG_SWARM_DATA_DIR");
+        std::env::remove_var("CEREBRATE_DATA_DIR");
         let dir = get_data_dir(None);
-        assert!(dir.to_str().unwrap().contains(".zerg-swarm"));
+        assert!(dir.to_str().unwrap().contains(".cerebrate"));
     }
 
     #[test]
     fn test_cli_parse_serve() {
-        let cli = Cli::try_parse_from(["zerg-swarm", "serve"]);
+        let cli = Cli::try_parse_from(["cerebrate", "serve"]);
         assert!(cli.is_ok());
     }
 
     #[test]
     fn test_cli_parse_status() {
-        let cli = Cli::try_parse_from(["zerg-swarm", "status"]);
+        let cli = Cli::try_parse_from(["cerebrate", "status"]);
         assert!(cli.is_ok());
     }
 
     #[test]
     fn test_cli_parse_agent_list() {
-        let cli = Cli::try_parse_from(["zerg-swarm", "agent", "list"]);
+        let cli = Cli::try_parse_from(["cerebrate", "agent", "list"]);
         assert!(cli.is_ok());
         let cli = cli.unwrap();
         match cli.command {
@@ -412,63 +404,56 @@ mod tests {
 
     #[test]
     fn test_cli_parse_agent_create() {
-        let cli = Cli::try_parse_from(["zerg-swarm", "agent", "create", "my-agent"]);
+        let cli = Cli::try_parse_from(["cerebrate", "agent", "create", "my-agent"]);
         assert!(cli.is_ok());
     }
 
     #[test]
     fn test_cli_parse_agent_create_with_forgejo() {
-        let cli = Cli::try_parse_from(["zerg-swarm", "agent", "create", "my-agent", "-f", "user1"]);
+        let cli = Cli::try_parse_from(["cerebrate", "agent", "create", "my-agent", "-f", "user1"]);
         assert!(cli.is_ok());
     }
 
     #[test]
     fn test_cli_parse_apply() {
-        let cli = Cli::try_parse_from(["zerg-swarm", "apply", "--btrfs-device", "/dev/sda1"]);
+        let cli = Cli::try_parse_from(["cerebrate", "apply"]);
         assert!(cli.is_ok());
     }
 
     #[test]
     fn test_cli_parse_apply_with_template() {
-        let cli = Cli::try_parse_from([
-            "zerg-swarm",
-            "apply",
-            "--template",
-            "/templates",
-            "--btrfs-device",
-            "/dev/nvme0n1",
-        ]);
+        let cli = Cli::try_parse_from(["cerebrate", "apply", "--template", "/templates"]);
         assert!(cli.is_ok());
     }
 
     #[test]
     fn test_cli_parse_config_export() {
-        let cli = Cli::try_parse_from(["zerg-swarm", "config", "export"]);
+        let cli = Cli::try_parse_from(["cerebrate", "config", "export"]);
         assert!(cli.is_ok());
     }
 
     #[test]
     fn test_cli_parse_config_sync() {
-        let cli = Cli::try_parse_from(["zerg-swarm", "config", "sync"]);
+        let cli = Cli::try_parse_from(["cerebrate", "config", "sync"]);
         assert!(cli.is_ok());
     }
 
     #[test]
     fn test_cli_parse_config_sync_delete() {
-        let cli = Cli::try_parse_from(["zerg-swarm", "config", "sync", "--delete"]);
+        let cli = Cli::try_parse_from(["cerebrate", "config", "sync", "--delete"]);
         assert!(cli.is_ok());
     }
 
     #[test]
     fn test_cli_parse_provider_list() {
-        let cli = Cli::try_parse_from(["zerg-swarm", "provider", "list"]);
+        let cli = Cli::try_parse_from(["cerebrate", "provider", "list"]);
         assert!(cli.is_ok());
     }
 
     #[test]
     fn test_cli_parse_provider_create() {
         let cli = Cli::try_parse_from([
-            "zerg-swarm",
+            "cerebrate",
             "provider",
             "create",
             "OpenAI",
@@ -481,14 +466,14 @@ mod tests {
 
     #[test]
     fn test_cli_parse_tool_list() {
-        let cli = Cli::try_parse_from(["zerg-swarm", "tool", "list"]);
+        let cli = Cli::try_parse_from(["cerebrate", "tool", "list"]);
         assert!(cli.is_ok());
     }
 
     #[test]
     fn test_cli_parse_tool_clone() {
         let cli = Cli::try_parse_from([
-            "zerg-swarm",
+            "cerebrate",
             "tool",
             "clone",
             "my-tool",
@@ -502,32 +487,32 @@ mod tests {
 
     #[test]
     fn test_cli_parse_skill_list() {
-        let cli = Cli::try_parse_from(["zerg-swarm", "skill", "list"]);
+        let cli = Cli::try_parse_from(["cerebrate", "skill", "list"]);
         assert!(cli.is_ok());
     }
 
     #[test]
     fn test_cli_parse_key_create() {
         let cli =
-            Cli::try_parse_from(["zerg-swarm", "key", "create", "my-key", "-p", "provider-1"]);
+            Cli::try_parse_from(["cerebrate", "key", "create", "my-key", "-p", "provider-1"]);
         assert!(cli.is_ok());
     }
 
     #[test]
     fn test_cli_parse_checkpoint_list() {
-        let cli = Cli::try_parse_from(["zerg-swarm", "checkpoint", "list"]);
+        let cli = Cli::try_parse_from(["cerebrate", "checkpoint", "list"]);
         assert!(cli.is_ok());
     }
 
     #[test]
     fn test_cli_parse_checkpoint_list_with_agent() {
-        let cli = Cli::try_parse_from(["zerg-swarm", "checkpoint", "list", "-a", "agent-1"]);
+        let cli = Cli::try_parse_from(["cerebrate", "checkpoint", "list", "-a", "agent-1"]);
         assert!(cli.is_ok());
     }
 
     #[test]
     fn test_cli_with_data_dir() {
-        let cli = Cli::try_parse_from(["zerg-swarm", "--data-dir", "/custom/dir", "serve"]);
+        let cli = Cli::try_parse_from(["cerebrate", "--data-dir", "/custom/dir", "serve"]);
         assert!(cli.is_ok());
         let cli = cli.unwrap();
         assert_eq!(cli.data_dir, Some(PathBuf::from("/custom/dir")));
@@ -536,7 +521,7 @@ mod tests {
     #[test]
     fn test_cli_parse_tool_setenv() {
         let cli = Cli::try_parse_from([
-            "zerg-swarm",
+            "cerebrate",
             "tool",
             "set-env",
             "my-tool",
@@ -549,7 +534,7 @@ mod tests {
     #[test]
     fn test_cli_parse_tool_invoke() {
         let cli = Cli::try_parse_from([
-            "zerg-swarm",
+            "cerebrate",
             "tool",
             "invoke",
             "my-tool",
@@ -561,14 +546,14 @@ mod tests {
 
     #[test]
     fn test_cli_parse_git_users() {
-        let cli = Cli::try_parse_from(["zerg-swarm", "git", "users"]);
+        let cli = Cli::try_parse_from(["cerebrate", "git", "users"]);
         assert!(cli.is_ok());
     }
 
     #[test]
     fn test_cli_parse_git_create_user() {
         let cli = Cli::try_parse_from([
-            "zerg-swarm",
+            "cerebrate",
             "git",
             "create-user",
             "user1",
@@ -580,13 +565,13 @@ mod tests {
 
     #[test]
     fn test_cli_parse_git_create_org() {
-        let cli = Cli::try_parse_from(["zerg-swarm", "git", "create-org", "myorg"]);
+        let cli = Cli::try_parse_from(["cerebrate", "git", "create-org", "myorg"]);
         assert!(cli.is_ok());
     }
 
     #[test]
     fn test_cli_parse_git_create_repo() {
-        let cli = Cli::try_parse_from(["zerg-swarm", "git", "create-repo", "myorg", "myrepo"]);
+        let cli = Cli::try_parse_from(["cerebrate", "git", "create-repo", "myorg", "myrepo"]);
         assert!(cli.is_ok());
     }
 }

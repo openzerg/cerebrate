@@ -264,6 +264,40 @@ dependencies = [
 ]
 
 [[package]]
+name = "cerebrate"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "axum 0.8.8",
+ "base64",
+ "chrono",
+ "clap",
+ "dirs",
+ "futures-util",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
+ "prost",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "sha2",
+ "tempfile",
+ "thiserror",
+ "tokio",
+ "tokio-stream",
+ "tokio-test",
+ "tonic",
+ "tonic-build",
+ "tower 0.5.3",
+ "tower-http",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
 name = "cfg-if"
 version = "1.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1744,40 +1778,6 @@ name = "subtle"
 version = "2.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
-
-[[package]]
-name = "swarm"
-version = "0.9.0"
-dependencies = [
- "async-trait",
- "axum 0.8.8",
- "base64",
- "chrono",
- "clap",
- "dirs",
- "futures-util",
- "http-body-util",
- "hyper",
- "hyper-util",
- "prost",
- "reqwest",
- "serde",
- "serde_json",
- "serde_yaml",
- "sha2",
- "tempfile",
- "thiserror",
- "tokio",
- "tokio-stream",
- "tokio-test",
- "tonic",
- "tonic-build",
- "tower 0.5.3",
- "tower-http",
- "tracing",
- "tracing-subscriber",
- "uuid",
-]
 
 [[package]]
 name = "syn"

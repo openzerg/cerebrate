@@ -4,8 +4,8 @@ use std::sync::Arc;
 use tokio::sync::mpsc;
 
 use crate::AppState;
-use crate::grpc::swarm::*;
-use crate::grpc::swarm::swarm_service_server::SwarmService;
+use crate::grpc::cerebrate::*;
+use crate::grpc::cerebrate::swarm_service_server::SwarmService;
 
 pub struct SwarmGrpcServer {
     state: Arc<AppState>,

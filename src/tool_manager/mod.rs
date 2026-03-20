@@ -159,7 +159,7 @@ fn parse_tool_yaml_frontmatter(content: &str, default_slug: &str) -> Result<Tool
 impl Default for ToolManager {
     fn default() -> Self {
         Self::new(
-            PathBuf::from("/var/lib/zerg-swarm"),
+            PathBuf::from("/var/lib/cerebrate"),
             "http://localhost:3000".to_string(),
             String::new(),
         )
@@ -183,7 +183,7 @@ mod tests {
     #[test]
     fn test_tool_manager_default() {
         let tm = ToolManager::default();
-        assert_eq!(tm.data_dir, PathBuf::from("/var/lib/zerg-swarm"));
+        assert_eq!(tm.data_dir, PathBuf::from("/var/lib/cerebrate"));
     }
 
     #[test]

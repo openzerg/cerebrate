@@ -1,6 +1,6 @@
 use std::collections::HashMap;
-use swarm::Result;
-use swarm::state;
+use cerebrate::Result;
+use cerebrate::state;
 use crate::cli::ModelCommands;
 
 pub async fn handle_model_command(command: ModelCommands, data_dir: std::path::PathBuf) -> Result<()> {
@@ -30,7 +30,7 @@ pub async fn handle_model_command(command: ModelCommands, data_dir: std::path::P
             let id = uuid::Uuid::new_v4().to_string();
             let now = chrono::Utc::now().to_rfc3339();
             
-            let model = swarm::Model {
+            let model = cerebrate::Model {
                 id: id.clone(),
                 name,
                 provider_id: provider,
