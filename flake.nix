@@ -14,11 +14,12 @@
         craneLib = crane.mkLib pkgs;
         inherit (pkgs) lib;
 
-        # Include templates directory in source
+        # Include templates and proto directories in source
         staticFilter = path: type:
           (craneLib.filterCargoSources path type) ||
           (lib.hasInfix "/templates/" path) ||
-          (type == "directory" && lib.hasSuffix "templates" path);
+          (lib.hasInfix "/proto/" path) ||
+          (type == "directory" && (lib.hasSuffix "templates" path || lib.hasSuffix "proto" path));
 
         src = lib.cleanSourceWith {
           src = lib.cleanSource ./.;
