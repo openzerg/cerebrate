@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
 use crate::AppState;
+use crate::pylon_client::CreateProxyRequest;
 use super::ApiResponse;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -11,6 +12,7 @@ pub struct Provider {
     pub name: String,
     pub provider_type: String,
     pub base_url: String,
+    pub pylon_proxy_id: Option<String>,
     pub enabled: bool,
     pub created_at: String,
 }
@@ -32,6 +34,8 @@ pub struct CreateProviderRequest {
     pub provider_type: String,
     pub base_url: String,
     pub api_key: String,
+    #[serde(default)]
+    pub target_model: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -54,6 +58,7 @@ pub async fn list_providers(
         name: p.name.clone(),
         provider_type: p.provider_type.as_str().to_string(),
         base_url: p.base_url.clone(),
+        pylon_proxy_id: p.pylon_proxy_id.clone(),
         enabled: p.enabled,
         created_at: p.created_at.clone(),
     }).collect();
@@ -78,12 +83,37 @@ pub async fn create_provider(
     let id = uuid::Uuid::new_v4().to_string();
     let now = chrono::Utc::now().to_rfc3339();
     
+    let proxy_id = format!("{}-proxy", id);
+    let source_model = req.name.to_lowercase().replace(' ', "-");
+    let target_model = req.target_model.clone().unwrap_or_else(|| source_model.clone());
+    
+    let proxy_req = CreateProxyRequest {
+        id: proxy_id.clone(),
+        source_model: source_model.clone(),
+        target_model,
+        upstream: req.base_url.clone(),
+        api_key: req.api_key.clone(),
+        default_max_tokens: None,
+        default_temperature: None,
+        default_top_p: None,
+        default_top_k: None,
+        support_streaming: Some(true),
+        support_tools: None,
+        support_vision: None,
+        extra_headers: None,
+        extra_body: None,
+    };
+    
+    if let Err(e) = state.pylon_client.create_proxy(&proxy_req).await {
+        return Json(ApiResponse::err(&format!("Failed to create Pylon proxy: {}", e)));
+    }
+    
     let provider = crate::models::Provider {
         id: id.clone(),
         name: req.name.clone(),
         provider_type,
         base_url: req.base_url.clone(),
-        api_key: req.api_key.clone(),
+        pylon_proxy_id: Some(proxy_id),
         enabled: true,
         created_at: now.clone(),
         updated_at: now,
@@ -100,6 +130,7 @@ pub async fn create_provider(
         name: provider.name,
         provider_type: provider.provider_type.as_str().to_string(),
         base_url: provider.base_url,
+        pylon_proxy_id: provider.pylon_proxy_id,
         enabled: provider.enabled,
         created_at: provider.created_at,
     }))
@@ -114,8 +145,13 @@ pub async fn delete_provider(
         Err(e) => return Json(ApiResponse::err(&e.to_string())),
     };
     
-    if sw.providers.remove(&id).is_none() {
-        return Json(ApiResponse::err(&format!("Provider {} not found", id)));
+    let provider = match sw.providers.remove(&id) {
+        Some(p) => p,
+        None => return Json(ApiResponse::err(&format!("Provider {} not found", id))),
+    };
+    
+    if let Some(proxy_id) = &provider.pylon_proxy_id {
+        let _ = state.pylon_client.delete_proxy(proxy_id).await;
     }
     
     if let Err(e) = state.state_manager.save(&sw).await {

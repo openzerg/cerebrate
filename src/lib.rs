@@ -15,6 +15,7 @@ pub mod llm_proxy;
 pub mod grpc;
 pub mod jwt;
 pub mod auth_middleware;
+pub mod pylon_client;
 mod app_state_impl;
 
 use std::collections::HashMap;
@@ -25,6 +26,7 @@ use crate::grpc::AgentGrpcClient;
 
 pub use error::{Error, Result};
 pub use models::*;
+pub use pylon_client::PylonClient;
 
 pub struct AppState {
     pub state_manager: state::StateManager,
@@ -35,6 +37,7 @@ pub struct AppState {
     pub data_dir: std::path::PathBuf,
     pub apply_tx: mpsc::UnboundedSender<()>,
     pub grpc_client: Arc<AgentGrpcClient>,
+    pub pylon_client: Arc<PylonClient>,
 }
 
 pub struct VmConnection {
@@ -66,6 +69,7 @@ impl AppState {
             data_dir,
             apply_tx: mpsc::unbounded_channel().0,
             grpc_client: Arc::new(AgentGrpcClient::new()),
+            pylon_client: Arc::new(PylonClient::new()),
         }
     }
 }

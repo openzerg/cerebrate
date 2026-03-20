@@ -20,7 +20,7 @@ mod models_tests {
             name: "OpenAI".to_string(),
             provider_type: ProviderType::Openai,
             base_url: "https://api.openai.com/v1".to_string(),
-            api_key: "sk-test".to_string(),
+            pylon_proxy_id: Some("openai-proxy".to_string()),
             enabled: true,
             created_at: "2024-01-01T00:00:00Z".to_string(),
             updated_at: "2024-01-01T00:00:00Z".to_string(),
@@ -273,7 +273,8 @@ mod models_tests {
             name: "OpenAI".to_string(),
             provider_type: ProviderType::Openai,
             base_url: "https://api.openai.com/v1".to_string(),
-            api_key: "sk-test".to_string(),
+            api_key: Some("sk-test".to_string()),
+            target_model: None,
         };
 
         assert_eq!(req.name, "OpenAI");

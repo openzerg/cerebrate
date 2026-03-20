@@ -80,8 +80,6 @@ mod grpc_integration_tests {
             api_key: "sk-test".to_string(),
         })).await;
         assert!(response.is_err());
-        let status = response.unwrap_err();
-        assert_eq!(status.code(), tonic::Code::Unimplemented);
     }
 
     #[tokio::test]

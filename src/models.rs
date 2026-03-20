@@ -92,7 +92,8 @@ pub struct Provider {
     pub name: String,
     pub provider_type: ProviderType,
     pub base_url: String,
-    pub api_key: String,
+    #[serde(default)]
+    pub pylon_proxy_id: Option<String>,
     pub enabled: bool,
     pub created_at: String,
     pub updated_at: String,
@@ -160,7 +161,10 @@ pub struct CreateProviderRequest {
     pub name: String,
     pub provider_type: ProviderType,
     pub base_url: String,
-    pub api_key: String,
+    #[serde(default)]
+    pub api_key: Option<String>,
+    #[serde(default)]
+    pub target_model: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -376,7 +380,7 @@ mod tests {
             name: "OpenAI".to_string(),
             provider_type: ProviderType::Openai,
             base_url: "https://api.openai.com".to_string(),
-            api_key: "key123".to_string(),
+            pylon_proxy_id: Some("p1-proxy".to_string()),
             enabled: true,
             created_at: "2024-01-01T00:00:00Z".to_string(),
             updated_at: "2024-01-01T00:00:00Z".to_string(),
@@ -384,6 +388,7 @@ mod tests {
         let json = serde_json::to_string(&provider).unwrap();
         assert!(json.contains("OpenAI"));
         assert!(json.contains("openai"));
+        assert!(json.contains("p1-proxy"));
     }
 
     #[test]

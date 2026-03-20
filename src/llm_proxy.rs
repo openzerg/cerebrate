@@ -1,6 +1,5 @@
 use std::net::SocketAddr;
 use std::sync::Arc;
-use std::time::Duration;
 use axum::{
     Router,
     routing::{get, post},
@@ -10,27 +9,14 @@ use axum::{
     response::Response,
 };
 use crate::AppState;
-use serde::{Deserialize, Serialize};
+use crate::pylon_client::PylonError;
+use serde::Deserialize;
 
 const LLM_PROXY_PORT: u16 = 17534;
-
-fn create_client() -> reqwest::Client {
-    reqwest::Client::builder()
-        .timeout(Duration::from_secs(120))
-        .build()
-        .unwrap()
-}
-
-#[derive(Debug, Serialize)]
-struct ProxyError {
-    error: String,
-}
 
 #[derive(Debug, Deserialize)]
 struct ChatCompletionRequest {
     model: String,
-    #[serde(default)]
-    messages: Vec<serde_json::Value>,
 }
 
 pub async fn start_llm_proxy(state: Arc<AppState>) -> crate::Result<()> {
@@ -39,11 +25,10 @@ pub async fn start_llm_proxy(state: Arc<AppState>) -> crate::Result<()> {
     let app = Router::new()
         .route("/chat/completions", post(proxy_chat_completions))
         .route("/models", get(proxy_models))
-        .route("/{*path}", post(proxy_generic))
         .with_state(state);
     
     let listener = tokio::net::TcpListener::bind(addr).await?;
-    tracing::info!("LLM Proxy listening on {}", addr);
+    tracing::info!("LLM Proxy (Pylon gateway) listening on {}", addr);
     
     axum::serve(listener, app).await?;
     
@@ -59,12 +44,12 @@ async fn extract_token(headers: &HeaderMap) -> Option<String> {
     }
 }
 
-async fn find_agent_by_token(state: &AppState, token: &str) -> Option<(String, crate::models::Agent)> {
+async fn find_agent_by_token(state: &AppState, token: &str) -> Option<String> {
     let sw = state.state_manager.load().await.ok()?;
     
     for (name, agent) in sw.agents.iter() {
         if agent.internal_token == token {
-            return Some((name.clone(), agent.clone()));
+            return Some(name.clone());
         }
     }
     
@@ -79,36 +64,35 @@ async fn proxy_chat_completions(
     let token = extract_token(&headers).await
         .ok_or(StatusCode::UNAUTHORIZED)?;
     
-    let (_agent_name, agent) = find_agent_by_token(&state, &token).await
+    let agent_name = find_agent_by_token(&state, &token).await
         .ok_or(StatusCode::UNAUTHORIZED)?;
     
-    let model_id = agent.model_id.as_ref()
-        .ok_or(StatusCode::BAD_REQUEST)?;
-    
-    let sw = state.state_manager.load().await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    
-    let model = sw.models.get(model_id)
-        .ok_or(StatusCode::NOT_FOUND)?;
-    
-    if !model.enabled {
-        return Err(StatusCode::FORBIDDEN);
-    }
-    
-    let provider = sw.providers.get(&model.provider_id)
-        .ok_or(StatusCode::NOT_FOUND)?;
-    
-    if !provider.enabled {
-        return Err(StatusCode::FORBIDDEN);
-    }
-    
-    let mut req_body: serde_json::Value = serde_json::from_str(&body)
+    let req_body: serde_json::Value = serde_json::from_str(&body)
         .map_err(|_| StatusCode::BAD_REQUEST)?;
     
-    req_body["model"] = serde_json::json!(model.model_name);
+    let result = state.pylon_client.chat_completions(&agent_name, &req_body).await;
     
-    let target_url = format!("{}/chat/completions", provider.base_url);
-    
-    forward_request(&target_url, &provider.api_key, &req_body).await
+    match result {
+        Ok(response) => {
+            let body = serde_json::to_string(&response).unwrap_or_default();
+            Ok(Response::new(Body::from(body)))
+        }
+        Err(PylonError::Unauthorized) => Err(StatusCode::UNAUTHORIZED),
+        Err(PylonError::Forbidden) => Err(StatusCode::FORBIDDEN),
+        Err(PylonError::NotFound(msg)) => {
+            let error = serde_json::json!({"error": {"message": msg, "type": "not_found"}});
+            let mut resp = Response::new(Body::from(error.to_string()));
+            *resp.status_mut() = StatusCode::NOT_FOUND;
+            Ok(resp)
+        }
+        Err(e) => {
+            tracing::error!("Pylon error: {}", e);
+            let error = serde_json::json!({"error": {"message": e.to_string(), "type": "internal_error"}});
+            let mut resp = Response::new(Body::from(error.to_string()));
+            *resp.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
+            Ok(resp)
+        }
+    }
 }
 
 async fn proxy_models(
@@ -118,117 +102,32 @@ async fn proxy_models(
     let token = extract_token(&headers).await
         .ok_or(StatusCode::UNAUTHORIZED)?;
     
-    let (_agent_name, agent) = find_agent_by_token(&state, &token).await
+    let agent_name = find_agent_by_token(&state, &token).await
         .ok_or(StatusCode::UNAUTHORIZED)?;
     
-    let model_id = agent.model_id.as_ref()
-        .ok_or(StatusCode::BAD_REQUEST)?;
-    
-    let sw = state.state_manager.load().await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    
-    let model = sw.models.get(model_id)
-        .ok_or(StatusCode::NOT_FOUND)?;
-    
-    let provider = sw.providers.get(&model.provider_id)
-        .ok_or(StatusCode::NOT_FOUND)?;
-    
-    let target_url = format!("{}/models", provider.base_url);
-    
-    let client = create_client();
-    let resp = client
-        .get(&target_url)
-        .header("Authorization", format!("Bearer {}", provider.api_key))
-        .send()
-        .await
-        .map_err(|e| {
-            tracing::error!("LLM proxy models request failed: {}", e);
-            StatusCode::BAD_GATEWAY
-        })?;
-    
-    let status = resp.status();
-    let body = resp.text().await.map_err(|_| StatusCode::BAD_GATEWAY)?;
-    
-    let mut response = Response::new(Body::from(body));
-    *response.status_mut() = StatusCode::from_u16(status.as_u16()).unwrap_or(StatusCode::OK);
-    
-    Ok(response)
-}
-
-async fn proxy_generic(
-    State(state): State<Arc<AppState>>,
-    headers: HeaderMap,
-    body: String,
-) -> Result<Response<Body>, StatusCode> {
-    let token = extract_token(&headers).await
-        .ok_or(StatusCode::UNAUTHORIZED)?;
-    
-    let (_agent_name, agent) = find_agent_by_token(&state, &token).await
-        .ok_or(StatusCode::UNAUTHORIZED)?;
-    
-    let model_id = agent.model_id.as_ref()
-        .ok_or(StatusCode::BAD_REQUEST)?;
-    
-    let sw = state.state_manager.load().await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    
-    let model = sw.models.get(model_id)
-        .ok_or(StatusCode::NOT_FOUND)?;
-    
-    let provider = sw.providers.get(&model.provider_id)
-        .ok_or(StatusCode::NOT_FOUND)?;
-    
-    let target_url = provider.base_url.clone();
-    
-    let client = create_client();
-    let resp = client
-        .post(&target_url)
-        .header("Authorization", format!("Bearer {}", provider.api_key))
-        .header("Content-Type", "application/json")
-        .body(body)
-        .send()
-        .await
-        .map_err(|e| {
-            tracing::error!("LLM proxy generic request failed: {}", e);
-            StatusCode::BAD_GATEWAY
-        })?;
-    
-    let status = resp.status();
-    let body = resp.text().await.map_err(|_| StatusCode::BAD_GATEWAY)?;
-    
-    let mut response = Response::new(Body::from(body));
-    *response.status_mut() = StatusCode::from_u16(status.as_u16()).unwrap_or(StatusCode::OK);
-    
-    Ok(response)
-}
-
-async fn forward_request(target_url: &str, api_key: &str, body: &serde_json::Value) -> Result<Response<Body>, StatusCode> {
-    let client = create_client();
-    
-    tracing::info!("Forwarding LLM request to: {}", target_url);
-    
-    let resp = client
-        .post(target_url)
-        .header("Authorization", format!("Bearer {}", api_key))
-        .header("Content-Type", "application/json")
-        .json(body)
-        .send()
-        .await
-        .map_err(|e| {
-            tracing::error!("LLM proxy request failed: {}", e);
-            StatusCode::BAD_GATEWAY
-        })?;
-    
-    let status = resp.status();
-    tracing::info!("LLM proxy response status: {}", status);
-    
-    let body = resp.text().await.map_err(|e| {
-        tracing::error!("Failed to read LLM response body: {}", e);
-        StatusCode::BAD_GATEWAY
-    })?;
-    
-    let mut response = Response::new(Body::from(body));
-    *response.status_mut() = StatusCode::from_u16(status.as_u16()).unwrap_or(StatusCode::OK);
-    
-    Ok(response)
+    match state.pylon_client.list_models().await {
+        Ok(models) => {
+            let data: Vec<serde_json::Value> = models.iter().map(|m| {
+                serde_json::json!({
+                    "id": m,
+                    "object": "model",
+                    "created": 1700000000,
+                    "owned_by": "pylon"
+                })
+            }).collect();
+            
+            let response = serde_json::json!({
+                "object": "list",
+                "data": data
+            });
+            
+            Ok(Response::new(Body::from(response.to_string())))
+        }
+        Err(e) => {
+            tracing::error!("Failed to list models: {}", e);
+            Err(StatusCode::INTERNAL_SERVER_ERROR)
+        }
+    }
 }
 
 #[cfg(test)]

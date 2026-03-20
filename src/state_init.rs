@@ -2,7 +2,7 @@ use std::sync::Arc;
 use std::collections::HashMap;
 use tokio::sync::RwLock;
 
-use cerebrate::{AppState, Result};
+use cerebrate::{AppState, Result, PylonClient};
 use cerebrate::state;
 use cerebrate::agent_manager;
 use cerebrate::tool_manager;
@@ -34,6 +34,7 @@ pub async fn init_state(data_dir: std::path::PathBuf) -> Result<Arc<AppState>> {
     let (apply_tx, apply_rx) = tokio::sync::mpsc::unbounded_channel::<()>();
     
     let grpc_client = Arc::new(AgentGrpcClient::new());
+    let pylon_client = Arc::new(PylonClient::new());
 
     let state = Arc::new(AppState {
         state_manager,
@@ -44,6 +45,7 @@ pub async fn init_state(data_dir: std::path::PathBuf) -> Result<Arc<AppState>> {
         data_dir: data_dir.clone(),
         apply_tx,
         grpc_client,
+        pylon_client,
     });
 
     let state_clone = state.clone();
