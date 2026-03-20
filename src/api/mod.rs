@@ -4,6 +4,7 @@ pub mod checkpoint;
 pub mod skill;
 pub mod tool;
 pub mod stats;
+pub mod auth;
 
 use axum::{
     routing::{get, post, delete, put},
@@ -49,6 +50,8 @@ async fn health_handler() -> Json<HealthResponse> {
 pub fn create_router(state: std::sync::Arc<crate::AppState>) -> Router<()> {
     Router::new()
         .route("/health", get(health_handler))
+        .route("/api/auth/login", post(auth::login))
+        .route("/api/auth/verify", post(auth::verify))
         .route("/api/agents", get(agent::list).post(agent::create))
         .route("/api/agents/{name}", get(agent::get).delete(agent::delete))
         .route("/api/agents/{name}/enable", post(agent::enable))

@@ -13,6 +13,7 @@ pub mod tool_manager;
 pub mod sync;
 pub mod llm_proxy;
 pub mod grpc;
+pub mod jwt;
 mod app_state_impl;
 
 use std::collections::HashMap;
