@@ -1,16 +1,16 @@
 [package]
-name = "swarm"
-version = "0.9.0"
+name = "cerebrate"
+version = "0.1.0"
 edition = "2021"
-authors = ["Zerg Swarm Team"]
+authors = ["OpenZerg Team"]
 license = "MIT"
 
 [lib]
-name = "swarm"
+name = "cerebrate"
 path = "src/lib.rs"
 
 [[bin]]
-name = "zerg-swarm"
+name = "cerebrate"
 path = "src/main.rs"
 
 [dependencies]

@@ -1,5 +1,5 @@
 {
-  description = "Zerg Swarm - Agent cluster manager for NixOS";
+  description = "Cerebrate - Agent cluster orchestrator for OpenZerg";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.11";
@@ -32,31 +32,30 @@
         };
 
         cargoArtifacts = craneLib.buildDepsOnly (commonArgs // {
-          pname = "zerg-swarm-deps";
+          pname = "cerebrate-deps";
         });
 
-        zerg-swarm = craneLib.buildPackage (commonArgs // {
+        cerebrate = craneLib.buildPackage (commonArgs // {
           inherit cargoArtifacts;
-          pname = "zerg-swarm";
-          cargoExtraArgs = "--bin zerg-swarm";
+          pname = "cerebrate";
+          cargoExtraArgs = "--bin cerebrate";
           doCheck = false;
         });
 
       in
       {
         packages = {
-          inherit zerg-swarm;
-          default = zerg-swarm;
+          inherit cerebrate;
+          default = cerebrate;
         };
 
         devShells.default = craneLib.devShell {
           inherit src;
-          inputsFrom = [ zerg-swarm ];
+          inputsFrom = [ cerebrate ];
           packages = with pkgs; [
             rust-analyzer
             cargo-watch
             cargo-llvm-cov
-            btrfs-progs
           ];
           shellHook = ''
             export LLVM_COV="${pkgs.llvmPackages_19.llvm}/bin/llvm-cov"
@@ -66,13 +65,13 @@
       }
     ) // {
       overlays.default = final: prev: {
-        zerg-swarm = self.packages.${final.system}.zerg-swarm;
+        cerebrate = self.packages.${final.system}.cerebrate;
       };
 
       nixosModules.default = { config, lib, pkgs, ... }: {
         imports = [ ./modules/swarm.nix ];
-        config = lib.mkIf config.services.zerg-swarm.enable {
-          services.zerg-swarm.package = lib.mkDefault self.packages.${pkgs.system}.zerg-swarm;
+        config = lib.mkIf config.services.cerebrate.enable {
+          services.cerebrate.package = lib.mkDefault self.packages.${pkgs.system}.cerebrate;
         };
       };
     };
