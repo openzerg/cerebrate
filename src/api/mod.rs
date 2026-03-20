@@ -11,18 +11,18 @@ use axum::{
     Router, Json,
 };
 use tower_http::cors::{CorsLayer, Any};
-use serde::Serialize;
+use serde::{Serialize, Deserialize};
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize)]
 pub struct HealthResponse {
     pub status: &'static str,
     pub version: &'static str,
     pub name: &'static str,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize)]
 pub struct ApiResponse<T> {
     pub success: bool,
     pub data: Option<T>,

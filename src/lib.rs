@@ -44,26 +44,39 @@ pub struct VmConnection {
     pub agent_ip: String,
 }
 
+impl AppState {
+    #[doc(hidden)]
+    pub fn new_test() -> Self {
+        Self::new_test_with_dir(std::path::PathBuf::from("/tmp/test_cerebrate"))
+    }
+
+    #[doc(hidden)]
+    pub fn new_test_with_dir(data_dir: std::path::PathBuf) -> Self {
+        let (event_tx, _) = broadcast::channel(100);
+        Self {
+            state_manager: state::StateManager::new(&data_dir),
+            agent_manager: agent_manager::AgentManager::new(&data_dir),
+            tool_manager: tool_manager::ToolManager::new(
+                data_dir.clone(),
+                "http://localhost:3000".to_string(),
+                "".to_string(),
+            ),
+            vm_connections: RwLock::new(HashMap::new()),
+            event_tx,
+            data_dir,
+            apply_tx: mpsc::unbounded_channel().0,
+            grpc_client: Arc::new(AgentGrpcClient::new()),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn test_app_state_creation() {
-        let state = AppState {
-            state_manager: state::StateManager::new(std::path::Path::new("/tmp")),
-            agent_manager: agent_manager::AgentManager::new(std::path::Path::new("/tmp")),
-            tool_manager: tool_manager::ToolManager::new(
-                std::path::PathBuf::from("/tmp"),
-                "http://localhost:3000".to_string(),
-                "".to_string(),
-            ),
-            vm_connections: RwLock::new(HashMap::new()),
-            event_tx: broadcast::channel(100).0,
-            data_dir: std::path::PathBuf::from("/tmp"),
-            apply_tx: mpsc::unbounded_channel().0,
-            grpc_client: Arc::new(AgentGrpcClient::new()),
-        };
+        let state = AppState::new_test();
         assert!(state.data_dir.to_str().unwrap().contains("tmp"));
     }
 

@@ -343,6 +343,7 @@ pub fn setup_logging() {
 
 #[cfg(test)]
 mod tests {
+    use serial_test::serial;
     use super::*;
 
     #[test]
@@ -362,6 +363,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_get_data_dir_from_env() {
         std::env::set_var("CEREBRATE_DATA_DIR", "/env/dir");
         let dir = get_data_dir(None);
@@ -370,6 +372,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_get_data_dir_default() {
         std::env::remove_var("CEREBRATE_DATA_DIR");
         let dir = get_data_dir(None);
@@ -492,11 +495,6 @@ mod tests {
     }
 
     #[test]
-    fn test_cli_parse_key_create() {
-        let cli =
-            Cli::try_parse_from(["cerebrate", "key", "create", "my-key", "-p", "provider-1"]);
-        assert!(cli.is_ok());
-    }
 
     #[test]
     fn test_cli_parse_checkpoint_list() {

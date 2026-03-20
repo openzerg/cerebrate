@@ -11,13 +11,13 @@ pub struct LoginRequest {
     pub token: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct LoginResponse {
     pub jwt: String,
     pub expires_in: i64,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct VerifyResponse {
     pub valid: bool,
     pub subject: String,
